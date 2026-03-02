@@ -130,8 +130,8 @@ def add_portfolio_cols(input_df: pd.DataFrame, feature_sequence: List[str], tree
     # tree_df.loc[:, f"{Columns.node_col}{Columns.col_sep}0"] = 0
     # print(tree_splits_features)
     
-    # tree_df = recursive_tree_grows(tree_df, n_split=n_split)
-    tree_df = tree_grows(tree_df, n_split=n_split)
+    tree_df = recursive_tree_grows(tree_df, n_split=n_split)
+    # tree_df = tree_grows(tree_df, n_split=n_split)
     
     input_df = input_df.join(tree_df)
     feat_agg_func = {f: ['min', 'max'] for f in set(feature_sequence)}

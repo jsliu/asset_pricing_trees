@@ -45,7 +45,7 @@ def main(args: argparse.Namespace):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Plotting test SR')
-    parser.add_argument('--feature_combination', default='qual_trd_lme')
+    parser.add_argument('--feature_combination', default='lme_val_qual')
     arguments = parser.parse_args()
     main(arguments)
 

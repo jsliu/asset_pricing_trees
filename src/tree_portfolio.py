@@ -345,10 +345,10 @@ def add_portfolio_cols_from_nodes(
 
     for i_seq in range(tree_depth + 1):
         port_col = f"{Columns.port_col}{Columns.col_sep}{i_seq}"
-        df.loc[:, port_col] = 1
+        df.loc[:, port_col] = pd.Series(1, index=df.index, dtype='Int64')
         for k_subseq in range(i_seq):
             node_k = f"{Columns.node_col}{Columns.col_sep}{k_subseq}"
-            df.loc[:, port_col] = df[port_col] + (df[node_k] * (n_split ** (i_seq - k_subseq - 1)))
+            df.loc[:, port_col] = df[port_col].astype('Int64') + (df[node_k].astype('Int64') * (n_split ** (i_seq - k_subseq - 1)))
 
         # weighted return per port
         ret_by_port = (df.groupby(port_col, observed=True)

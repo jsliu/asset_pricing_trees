@@ -15,7 +15,7 @@ if __name__ == '__main__':
     chars = Chars()
     paths = DataPaths()
 
-    reg = 'US'
+    reg = 'GL'
     logging.info(f"Loading base characteristics")
     print(f"Loading base characteristics in {reg}")
 
@@ -51,17 +51,11 @@ if __name__ == '__main__':
 
     logging.info(f"Start building the AP trees given the combinations of features")
     print(f"Start building the AP trees given the combinations of features")
-    # for char_comb in tqdm(chars.combinations_of_chars(k=Parameters.n_chars, exclude_chars=[chars.lme, chars.returns])):
-    #     feature_sequence = [chars.lme] + list(char_comb)
+    
     # Actually we don't need to always split on size
-    for char_comb in tqdm(chars.combinations_of_chars(k=Parameters.n_chars, exclude_chars=[chars.returns])):
-        feature_sequence = list(char_comb)
+    for char_comb in tqdm(chars.combinations_of_chars(k=Parameters.n_chars, exclude_chars=[chars.lme, chars.returns])):
+        feature_sequence = [chars.lme] + list(char_comb)
         output_file_name = f"{paths.sep}".join(feature_sequence)
-        # comb_df = pd.concat([unstack_df(
-        #     rows_to_quantiles(
-        #         read_rename_df(paths.input_data / f"{c}.csv")
-        #     ), name=c
-        # ) for c in char_comb], axis=1)
         comb_df = data[feature_sequence].groupby('date').transform(lambda x: x.rank(method="min", pct=True))
         comb_df = pd.concat([merged_df, comb_df], axis=1)
         comb_df = comb_df[~(comb_df.isna().sum(axis=1).astype(bool))]
@@ -72,21 +66,21 @@ if __name__ == '__main__':
         comb_df = comb_df[comb_df[Columns.date_col].apply(lambda x: x.year != 1963)]
 
         # Start building the tree portfolios
-        # portfolio = build_tree_portfolio(comb_df, feature_sequence, n_split=Parameters.n_splits, tree_depth=Parameters.tree_depth)
-        portfolio = build_tree_portfolio_best_split(comb_df=comb_df,
-                                                   feature_pool=feature_sequence,
-                                                   report_features=feature_sequence,
-                                                   n_split=Parameters.n_splits, 
-                                                   tree_depth=Parameters.tree_depth,
-                                                   date_col=Columns.date_col,
-                                                   ret_col=Columns.returns_col,
-                                                   w_col=Columns.size_col,
-                                                   mean_shrink=0.05,
-                                                   ridge=1e-4,
-                                                   allow_feature_reuse=True,
-                                                   min_leaf_obs=50,
-                                                   min_T=24,
-        )
+        portfolio = build_tree_portfolio(comb_df, feature_sequence, n_split=Parameters.n_splits, tree_depth=Parameters.tree_depth)
+        # portfolio = build_tree_portfolio_best_split(comb_df=comb_df,
+        #                                            feature_pool=feature_sequence,
+        #                                            report_features=feature_sequence,
+        #                                            n_split=Parameters.n_splits, 
+        #                                            tree_depth=Parameters.tree_depth,
+        #                                            date_col=Columns.date_col,
+        #                                            ret_col=Columns.returns_col,
+        #                                            w_col=Columns.size_col,
+        #                                            mean_shrink=0.05,
+        #                                            ridge=1e-4,
+        #                                            allow_feature_reuse=True,
+        #                                            min_leaf_obs=50,
+        #                                            min_T=24,
+        # )
 
         # Get returns excess variable
         ret_mask = portfolio.index.get_level_values(Columns.features_col) == Columns.w_returns_col

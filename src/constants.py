@@ -10,9 +10,9 @@ import numpy as np
 class Parameters:
     tree_depth: int = 4
     n_splits: int = 3
-    n_chars: int = 3
-    mean_shrinkage: ClassVar[np.ndarray] = np.arange(0, 0.9, 0.1)
-    ridge_lambda: ClassVar[np.ndarray] = 0.1 ** np.arange(2, 8, 0.5)
+    n_chars: int = 2
+    mean_shrinkage: ClassVar[np.ndarray] = np.arange(0.5, 0.9, 0.1)
+    ridge_lambda: ClassVar[np.ndarray] = 0.1 ** np.arange(6, 8, 0.5)
     cv_splits: int = 3
     k_min: int = 5
     k_max: int = 50
@@ -71,28 +71,28 @@ class Chars:
     # lt_rev: str = 'lt_rev'
     # lrunover: str = 'lturnover'
 
-    # val: str = 'val'
-    # qual: str = 'qual'
-    # trd: str = 'trd'
-    # sen: str = 'sen'
-    # fcf: str = 'fcf_rank'
-    # lme: str = 'lme'
+    val: str = 'val'
+    qual: str = 'qual'
+    trd: str = 'trd'
+    sen: str = 'sen'
+    fcf: str = 'fcf_rank'
+    lme: str = 'lme'
     
-    capital_structure: str = "cap_structure"
-    growth: str = "growth"
-    profitability: str = "profitability"
-    accrual: str = "accrual"
-    investment: str = "investment"
-    dividend_yield: str = "dy_rank"
-    book_yield: str = "by_rank"
-    forward_earnings_yield: str = "fy1_ey_rank"
-    ebidta_to_ev: str = "ee_no_fin_rank"
-    free_cash_flow: str = "fcf_rank"
-    stock_sentiment: str = "senstock"
-    industry_sentiment: str = "senind"
-    stock_trend: str = "trdstock"
-    industry_trend: str = "trdind"
-    lme: str = "lme"
+    # capital_structure: str = "cap_structure"
+    # growth: str = "growth"
+    # profitability: str = "profitability"
+    # accrual: str = "accrual"
+    # investment: str = "investment"
+    # dividend_yield: str = "dy_rank"
+    # book_yield: str = "by_rank"
+    # forward_earnings_yield: str = "fy1_ey_rank"
+    # ebidta_to_ev: str = "ee_no_fin_rank"
+    # free_cash_flow: str = "fcf_rank"
+    # stock_sentiment: str = "senstock"
+    # industry_sentiment: str = "senind"
+    # stock_trend: str = "trdstock"
+    # industry_trend: str = "trdind"
+    # lme: str = "lme"
     returns: str = 'ret'
 
     @property
@@ -111,7 +111,7 @@ class Chars:
         -------
             Generator of combinations
         """
-        for comb in combinations([k for k, v in self.__dict__.items() if v != self.lme and v != self.returns], k):
+        for comb in combinations([k for k, v in self.__dict__.items() if v != self.returns], k):
             # yield self.lme, comb[0], comb[1]
             yield comb
 
