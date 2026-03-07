@@ -1,18 +1,20 @@
 # data prepropcessing
-from sklearn.preprocessing import scale, LabelEncoder
-# from knn_plus import StockIdNeighbors, TimeIdNeighbors
-from src.functions import readAIfactors, readEIfactors
 import pandas as pd
 import numpy as np
+
+from datetime import date
+from sklearn.preprocessing import scale, LabelEncoder
+from src.functions import readAIfactors, readEIfactors, read_from_db
+from src.constants import DataPaths
 
 def read_ai_data(region_, data_saved, end_date=None, target='X1MFwdReturnLoc', mean_features=False):
     # region_ = 'US'
     # target = 'X1MFwdReturnLoc'
     # data_saved = False
-
+    path = DataPaths()
     if data_saved:
-        data_nn = pd.read_parquet(rf'characteristics\{region_}.parquet')
-        all_dates = data_nn.index.get_level_values('dates').unique()
+        data_nn = pd.read_parquet(path.input_data / f"{region_}.parquet")
+        all_dates = data_nn.index.get_level_values('date').unique()
         if end_date is not None:
             data_nn = data_nn.loc[all_dates[all_dates <= end_date]]
         features = list(data_nn)
@@ -22,7 +24,7 @@ def read_ai_data(region_, data_saved, end_date=None, target='X1MFwdReturnLoc', m
     else:
         le = LabelEncoder()
         ai_data = readAIfactors(region_=region_, ret_names=[target,])
-        all_dates = ai_data.index.get_level_values('dates').unique()
+        all_dates = ai_data.index.get_level_values('date').unique()
         if end_date is not None:
             ai_data = ai_data.loc[all_dates[all_dates <= end_date]]
         ind_code = pd.Series(le.fit_transform(ai_data['ind']), index=ai_data.index, name='ind_code')
@@ -42,7 +44,11 @@ def read_ai_data(region_, data_saved, end_date=None, target='X1MFwdReturnLoc', m
         # idx = (q_ret == 0) | (q_ret == q-1)
         # data4train = data4train[idx]
         # change to use 8 if you removed vol factor, otherwise 9
-        features = list(ai_data.drop(columns=[target, 'gross_returns', 'region_fsreg_gem']).columns[7:])
+        if target == 'X1MFwdReturnLoc':
+            features = list(ai_data.drop(columns=[target, 'gross_returns', 'region_fsreg_gem']).columns[7:])
+        if target == 'gross_returns':
+            features = list(ai_data.drop(columns=[target, 'X1MFwdReturnLoc', 'region_fsreg_gem']).columns[7:])
+
         # labels = q_ret[idx]
         # labels[labels==q-1] = 1
         # labels.name = label
@@ -57,7 +63,7 @@ def read_ai_data(region_, data_saved, end_date=None, target='X1MFwdReturnLoc', m
         data_nn = ai_data[features].merge(pd.concat([ind_code, sec_code, country_code, region_code], axis=1), left_index=True, right_index=True, how='right')
         data_nn = data_nn.merge(returns, left_index=True, right_index=True, how='left')
         # all_data = pd.concat([data_nn, data4test[features].merge(ind_code[test_dates], right_index=True, left_index=True)])
-        data_nn.to_parquet(rf'characteristics\{region_}.parquet')
+        data_nn.to_parquet(path.input_data / f"{region_}.parquet")
         features = list(data_nn)
         features.remove(target)
         features.remove('ind_code')
@@ -68,12 +74,13 @@ def read_ai_data(region_, data_saved, end_date=None, target='X1MFwdReturnLoc', m
     if mean_features:
         data_nn, features = add_mean_features(data_nn, features, target)
     
-    dates = data_nn.index.get_level_values('dates').unique()    
+    dates = data_nn.index.get_level_values('date').unique()    
     train_dates, test_dates = dates[:-1], dates[-1]
     # currently i put all the data as training data
     # train_dates, test_dates = dates, dates[-1]
-    train = data_nn.loc[train_dates]
-    test = data_nn.loc[test_dates]
+    idx = pd.IndexSlice
+    train = data_nn.loc[idx[:, train_dates], :]
+    test = data_nn.loc[idx[:, test_dates], :]
     
     # remove na
     train.loc[:, features] = train[features].fillna(train[features].mean())
@@ -215,3 +222,17 @@ def calculate_rolling_ir(returns, lookback_period, ann_factor=12):
     rolling_std = returns.rolling(window=lookback_period).std() * np.sqrt(ann_factor)
     rolling_ir = rolling_mean / rolling_std
     return rolling_ir
+
+
+def read_db_data(region_, features, ret_name, window=20, data_saved=True):
+    path = DataPaths()
+    if data_saved:
+        data = pd.read_parquet(path.input_data / f"{region_}_db.parquet")
+    else:
+        data, fund, curr = read_from_db(features, region_=region_, from_date='20090101', to_date=date.today().strftime("%Y%m%d"))
+        data.to_parquet(path.input_data / f"{region_}_db.parquet")
+    
+    data = data.rename_axis(index={'factset_perm_id': 'permno'})
+    data = data.swaplevel(0, 1)
+    data[ret_name] = data[ret_name].groupby('permno', group_keys=False).apply(lambda x: x.rolling(window).sum().shift(-window+1), include_groups=False)
+    return data[data[ret_name].notna()]

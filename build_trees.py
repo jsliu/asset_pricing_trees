@@ -3,11 +3,12 @@ import numpy as np
 import pandas as pd
 import logging
 from tqdm import tqdm
+from datetime import date
 
 from src.utils import build_tree_portfolio
 from src.tree_portfolio import build_tree_portfolio_best_split
 from src.constants import Columns, Chars, DataPaths, Parameters
-from src.preprocessing import read_ai_data, read_ei_data
+from src.preprocessing import read_ai_data, read_ei_data, read_db_data
 
 
 
@@ -16,15 +17,16 @@ if __name__ == '__main__':
     paths = DataPaths()
 
     reg = 'GL'
+    data_saved = True
     logging.info(f"Loading base characteristics")
     print(f"Loading base characteristics in {reg}")
 
     features = list(chars.__dict__.values())[:-2]
     data, _, CHARAS_LIST, _ = read_ei_data(region_=reg, target=Columns.returns_col, ei_factors=features)
+    # data, _, CHARAS_LIST, _ = read_ai_data(region_=reg, data_saved=data_saved, target=Columns.returns_col, mean_features=False)
+    # data = read_db_data(region_=reg, features=features, ret_name=Columns.returns_col, data_saved=data_saved)
     ret_df = data[Columns.returns_col]
-    rf_factor_df = ret_df.groupby('date').mean()
-    rf_factor_df.name = chars.returns
-    rf_factor_df.index = pd.to_datetime(rf_factor_df.index, format="%Y%m%d")
+    # we don't have risk free return, but it close to 0, so we ignore 
     # raw_lme_df = read_rename_df(paths.input_data / f"{chars.lme}.csv")
     # lme_df = pd.read_csv(paths.input_data / f"{chars.lme}.csv", names=[Columns.size_col])
     # ret_df = unstack_df(read_rename_df(paths.input_data / f"{paths.returns_file_name}.csv"), paths.returns_file_name)
@@ -82,10 +84,10 @@ if __name__ == '__main__':
         #                                            min_T=24,
         # )
 
-        # Get returns excess variable
-        ret_mask = portfolio.index.get_level_values(Columns.features_col) == Columns.w_returns_col
-        portfolio.iloc[ret_mask, :] = portfolio.iloc[ret_mask, :].sub(
-            rf_factor_df[portfolio.iloc[ret_mask, :].index.get_level_values(Columns.date_col)].tolist(), axis=0)
+        # Get returns excess variable, but we use zero to replace it
+        # ret_mask = portfolio.index.get_level_values(Columns.features_col) == Columns.w_returns_col
+        # portfolio.iloc[ret_mask, :] = portfolio.iloc[ret_mask, :].sub(
+        #     rf_factor_df[portfolio.iloc[ret_mask, :].index.get_level_values(Columns.date_col)].tolist(), axis=0)
 
         # Remove the trees that are solely based on the single characteristics
         # (all combinations in max port are the same)

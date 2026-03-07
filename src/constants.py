@@ -11,8 +11,8 @@ class Parameters:
     tree_depth: int = 4
     n_splits: int = 3
     n_chars: int = 2
-    mean_shrinkage: ClassVar[np.ndarray] = np.arange(0.5, 0.9, 0.1)
-    ridge_lambda: ClassVar[np.ndarray] = 0.1 ** np.arange(6, 8, 0.5)
+    mean_shrinkage: ClassVar[np.ndarray] = np.arange(0.1, 1, 0.1)
+    ridge_lambda: ClassVar[np.ndarray] = 0.1 ** np.arange(6, 9, 1)
     cv_splits: int = 3
     k_min: int = 5
     k_max: int = 50
@@ -22,8 +22,10 @@ class Parameters:
 @dataclass(frozen=True)
 class Columns:
     date_col: str = 'date'
+    # size_col: str = 'market_value_gbp'
     size_col: str = 'mkt_cap'
     permno_col: str = 'permno'
+    # returns_col: str = 'total_return_1d_gbp'
     returns_col: str = 'gross_returns'
     w_returns_col: str = 'weighted_ret'
     col_sep: str = '_'
@@ -35,7 +37,7 @@ class Columns:
 
 @dataclass(init=False)
 class Years:
-    min_year: int = 1963
+    min_year: int = 1990
     max_year: int = 2016
     __sort_index: int = 0
 
@@ -71,28 +73,28 @@ class Chars:
     # lt_rev: str = 'lt_rev'
     # lrunover: str = 'lturnover'
 
-    val: str = 'val'
-    qual: str = 'qual'
-    trd: str = 'trd'
-    sen: str = 'sen'
-    fcf: str = 'fcf_rank'
-    lme: str = 'lme'
+    # val: str = 'val'
+    # qual: str = 'qual'
+    # trd: str = 'trd'
+    # sen: str = 'sen'
+    # fcf: str = 'fcf_rank'
     
-    # capital_structure: str = "cap_structure"
-    # growth: str = "growth"
-    # profitability: str = "profitability"
-    # accrual: str = "accrual"
-    # investment: str = "investment"
-    # dividend_yield: str = "dy_rank"
-    # book_yield: str = "by_rank"
-    # forward_earnings_yield: str = "fy1_ey_rank"
-    # ebidta_to_ev: str = "ee_no_fin_rank"
-    # free_cash_flow: str = "fcf_rank"
-    # stock_sentiment: str = "senstock"
-    # industry_sentiment: str = "senind"
-    # stock_trend: str = "trdstock"
-    # industry_trend: str = "trdind"
-    # lme: str = "lme"
+    capital_structure: str = "cap_structure"
+    growth: str = "growth"
+    profitability: str = "profitability"
+    accrual: str = "accrual"
+    investment: str = "investment"
+    dividend_yield: str = "dy_rank"
+    book_yield: str = "by_rank"
+    forward_earnings_yield: str = "fy1_ey_rank"
+    ebidta_to_ev: str = "ee_no_fin_rank"
+    free_cash_flow: str = "fcf_rank"
+    stock_sentiment: str = "senstock"
+    industry_sentiment: str = "senind"
+    stock_trend: str = "trdstock"
+    industry_trend: str = "trdind"
+    
+    lme: str = "lme"
     returns: str = 'ret'
 
     @property

@@ -3,16 +3,20 @@
 import sys
 import pathlib
 
-working_dir = str(pathlib.Path(__file__).parent.parent.parent.parent) + r"\\code\\"
-# working_dir = str(pathlib.Path(__file__).parent.parent)
+working_dir = str(pathlib.Path(__file__).parent.parent.parent.parent) + r"\code\\"
 sys.path.append(working_dir)
+working_dir = str(pathlib.Path(__file__).parent.parent.parent.parent) + r'\code\PortfolioConstruction\src\main\python\\'
+sys.path.append(working_dir)
+working_dir = str(pathlib.Path(__file__).parent.parent.parent.parent) + r'\code\PortfolioConstruction\src\main\python\quasar\database_sql\\'
+sys.path.append(working_dir)
+
 from AlphaWorkshop.src.main.python.alphaworkshop.functions import rank_normalise
 from AIalpha.src.main.python.aialpha.file_process import read_factor_data
+from connector import DatabaseConnector
 from sklearn.impute import KNNImputer
 
 import AIalpha.src.main.python.aialpha.functions as f
 import pandas as pd
-# import modin.pandas as pd
 import numpy as np
 
 
@@ -152,9 +156,9 @@ def extract_trade_data(data, sub_factors, ret_names=[]):
     # zscores = data[['dates', 'factset_perm_id'] + sub_factors]
     # trade_data = basic_data.merge(zscores[['dates', 'factset_perm_id'] + sub_factors], on=['dates', 'factset_perm_id'])
     # else:
-    zscores = data[ret_names + sub_factors]
+    zscores = data[sub_factors]
     trade_data = basic_data.merge(
-        zscores[ret_names + sub_factors], left_index=True, right_index=True
+        zscores[sub_factors], left_index=True, right_index=True
     )
     return trade_data
 
@@ -298,7 +302,7 @@ def readAIfactors(
     all_data = ai_data.drop(columns=ai_drop_factor_names).set_index(["dates", "factset_perm_id"])
     # factors to be used
     factor_names = [x for x in all_data.drop(columns=['country_exposure']).columns[21:-2] if x not in ret_names]
-    trade_data = extract_trade_data(all_data, factor_names, ret_names)
+    trade_data = extract_trade_data(all_data, factor_names)
     # combine with regional stock return data to get regional factor data
     regional_data = trade_data.merge(
         stock_returns[stock_info['uk_inv_trust'] == False], left_index=True, right_index=True, how="right"
@@ -319,7 +323,10 @@ def readAIfactors(
         ai_factors = ai_factors_sn.merge(ai_factors_nsn, left_index=True, right_index=True)
     else:
         ai_factors = regional_data.drop(columns=['Market_Capitalization', 'ann_vol'])
-    return ai_factors.loc[ai_factors['X1MFwdReturnLoc'].notna()]
+    
+    out = ai_factors.loc[ai_factors['X1MFwdReturnLoc'].notna()].swaplevel(0, 1)
+    out = out.rename_axis(index={'dates': 'date', 'factset_perm_id': 'permno'})
+    return out
 
 
 def _regression(X, y, scaled=True):
@@ -623,4 +630,45 @@ def not_in_list(a, b):
         return [element not in b for element in a]
     else:
         return [element != b for element in a]
+
+
+def read_from_db(factor_names, region_, from_date, to_date):
+    if region_ == 'EU':
+        r_ = 'EUR'
+        fund = 'MSCIEURXUK'
+        curr = 'gbp'
+    if region_ == 'UK':
+        r_ = 'UK'
+        fund = 'FTALLSH'
+        curr = 'gbp'
+    if region_ == 'US':
+        r_ = 'NAM'
+        fund = 'SAP500'
+        curr = 'usd'
+    if region_ == 'JP':
+        r_ = 'JAP'
+        fund = 'MSCIJP'
+        curr = 'usd'
+    if region_ == 'AP':
+        r_ = 'FEAC'
+        fund = 'MSAPFXJ'
+        curr = 'usd'
+    if region_ == 'GL':
+        r_ = 'GLO'
+        fund = 'MSWRLD'
+        curr = 'usd'
+    if region_ == 'EM':
+        r_ = 'GEM'
+        fund = 'MSEMMF'
+        curr = 'usd'
+
+    dbc = DatabaseConnector()
+    data = dbc.get_df_perf_view_optimal(region=r_, funds=[fund], currs=[curr, 'local'], factors=factor_names, from_date=from_date, to_date=to_date, freq='daily', lags=0)
+    data = data[data['factset_perm_id'] != 'Missing']
+    data['date'] = pd.to_datetime(data['date'])
+    data = data.set_index(['date', 'factset_perm_id']).sort_index()
+    duplicated = data.index.duplicated(keep='first')
+    data = data[~duplicated]
+    return data, fund, curr
+    
 # %%
