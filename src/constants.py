@@ -9,14 +9,14 @@ import numpy as np
 @dataclass(frozen=True)
 class Parameters:
     tree_depth: int = 4
-    n_splits: int = 3
+    n_splits: int = 2
     n_chars: int = 2
     mean_shrinkage: ClassVar[np.ndarray] = np.arange(0.1, 1, 0.1)
     ridge_lambda: ClassVar[np.ndarray] = 0.1 ** np.arange(6, 9, 1)
     cv_splits: int = 3
     k_min: int = 5
     k_max: int = 50
-    test_size: int = 120
+    test_size: int = 60
 
 
 @dataclass(frozen=True)
@@ -26,7 +26,8 @@ class Columns:
     size_col: str = 'mkt_cap'
     permno_col: str = 'permno'
     # returns_col: str = 'total_return_1d_gbp'
-    returns_col: str = 'gross_returns'
+    # returns_col: str = 'gross_returns'
+    returns_col: str = 'X1MFwdReturnLoc'
     w_returns_col: str = 'weighted_ret'
     col_sep: str = '_'
     node_col: str = 'node'
@@ -65,7 +66,6 @@ class Chars:
     # ac: str = 'ac'
     # beme: str = 'beme'
     # idiovol: str = 'idiovol'
-    # lme: str = 'lme'
     # r12_2: str = 'r12_2'
     # op: str = 'op'
     # investment: str = 'investment'
@@ -79,21 +79,31 @@ class Chars:
     # sen: str = 'sen'
     # fcf: str = 'fcf_rank'
     
-    capital_structure: str = "cap_structure"
-    growth: str = "growth"
-    profitability: str = "profitability"
-    accrual: str = "accrual"
-    investment: str = "investment"
-    dividend_yield: str = "dy_rank"
-    book_yield: str = "by_rank"
-    forward_earnings_yield: str = "fy1_ey_rank"
-    ebidta_to_ev: str = "ee_no_fin_rank"
-    free_cash_flow: str = "fcf_rank"
-    stock_sentiment: str = "senstock"
-    industry_sentiment: str = "senind"
-    stock_trend: str = "trdstock"
-    industry_trend: str = "trdind"
-    
+    # capital_structure: str = "cap_structure"
+    # growth: str = "growth"
+    # profitability: str = "profitability"
+    # accrual: str = "accrual"
+    # investment: str = "investment"
+    # dividend_yield: str = "dy_rank"
+    # book_yield: str = "by_rank"
+    # forward_earnings_yield: str = "fy1_ey_rank"
+    # ebidta_to_ev: str = "ee_no_fin_rank"
+    # free_cash_flow: str = "fcf_rank"
+    # stock_sentiment: str = "senstock"
+    # industry_sentiment: str = "senind"
+    # stock_trend: str = "trdstock"
+    # industry_trend: str = "trdind"
+
+    book_yield: str = "by"
+    accrual: str = "accrual_level"
+    vol: str = "X1MVolDaily"
+    momemtum: str = "mom_1y1m"
+    op: str = "Oper_Income_Total_Capital"
+    turnover: str = "turnover_3m"
+    reversal: str = "mom_1m"
+    lt_rev: str = "mom_6m"
+    inven_turnover: str = "Inven_Turnover" 
+    illiquid: str = 'X3MILLIQ'
     lme: str = "lme"
     returns: str = 'ret'
 

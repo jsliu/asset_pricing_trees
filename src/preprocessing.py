@@ -236,3 +236,14 @@ def read_db_data(region_, features, ret_name, window=20, data_saved=True):
     data = data.swaplevel(0, 1)
     data[ret_name] = data[ret_name].groupby('permno', group_keys=False).apply(lambda x: x.rolling(window).sum().shift(-window+1), include_groups=False)
     return data[data[ret_name].notna()]
+
+
+def read_big_universe(features, ret_name="X1MFwdReturnLoc"):
+    data = pd.read_csv(r"G:\Quant\Enhanced Index\Research\MATLAB\database\parquet\csv\mtec4.csv",
+                       na_values=["NA", "NAN"],
+                       keep_default_na=True).set_index(['Period (YYYYMMDD)', 'factset_perm_id'])
+    data = data[features + ['mkt_cap', ret_name]].swaplevel(0, 1)
+    data = data.rename_axis(index = {'Period (YYYYMMDD)': 'date', 'factset_perm_id': 'permno'})
+    dates = data.index.levels[1]
+    idx = pd.IndexSlice
+    return data.loc[idx[:, dates[:-2]], :]

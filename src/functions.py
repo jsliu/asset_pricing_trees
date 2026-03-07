@@ -670,5 +670,3 @@ def read_from_db(factor_names, region_, from_date, to_date):
     duplicated = data.index.duplicated(keep='first')
     data = data[~duplicated]
     return data, fund, curr
-    
-# %%
