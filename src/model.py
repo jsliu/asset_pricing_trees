@@ -120,8 +120,8 @@ class TreeElastic(BaseEstimator):
         self.betas = (self.base_model.coef_path_.T * self.feature_weights)
 
         # looks wrong here, should be sum(abs(betas))
-        # self.betas = (self.betas.T / (np.abs(np.sum(self.betas, axis=1)) + EPSILON)).T
-        self.betas = (self.betas.T / (np.sum(np.abs(self.betas, axis=1)) + EPSILON)).T
+        self.betas = (self.betas.T / (np.abs(np.sum(self.betas, axis=1)) + EPSILON)).T
+        # self.betas = (self.betas.T / (np.sum(np.abs(self.betas, axis=1)) + EPSILON)).T
 
         num_not_zero = np.sum(self.betas != 0, axis=1)
         mask = (num_not_zero >= self.k_min) & (num_not_zero <= self.k_max)

@@ -40,8 +40,8 @@ if __name__ == '__main__':
     sharpes.plot(x='index', y='SR', legend=False, xlabel='Combo', ylabel='Sharpe Ratio')
     plt.show()
 
-    ap_pnl = calc_fac_ret(stock_weights, data['gross_returns'].swaplevel(0, 1), q=5, date_col='date')
-    ei_pnl = calc_fac_ret(data[features].mean(axis=1).swaplevel(0, 1), data['gross_returns'].swaplevel(0, 1), q=5, date_col='date')
+    ap_pnl = calc_fac_ret(stock_weights, data['gross_returns'].swaplevel(0, 1), q=5, date_col='date', score_weighted=False)
+    ei_pnl = calc_fac_ret(data[features].mean(axis=1).swaplevel(0, 1), data['gross_returns'].swaplevel(0, 1), q=5, date_col='date', score_weighted=False)
     pnl = pd.concat([ap_pnl, ei_pnl], axis=1)
     pnl.index = pd.to_datetime(pnl.index, format="%Y%m%d")
     pnl.columns = ['Tree', 'EI']
