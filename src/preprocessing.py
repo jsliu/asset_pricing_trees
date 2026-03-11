@@ -224,7 +224,7 @@ def calculate_rolling_ir(returns, lookback_period, ann_factor=12):
     return rolling_ir
 
 
-def read_db_data(region_, features, ret_name, window=20, data_saved=True):
+def read_db_data(region_, features, ret_name, freq='M', data_saved=True):
     path = DataPaths()
     if data_saved:
         data = pd.read_parquet(path.input_data / f"{region_}_db.parquet")
@@ -234,7 +234,13 @@ def read_db_data(region_, features, ret_name, window=20, data_saved=True):
     
     data = data.rename_axis(index={'factset_perm_id': 'permno'})
     data = data.swaplevel(0, 1)
-    data[ret_name] = data[ret_name].groupby('permno', group_keys=False).apply(lambda x: x.rolling(window).sum().shift(-window+1), include_groups=False)
+    if freq != 'D':
+        if freq == "M":
+            window = 20
+        elif freq == "W":
+            window = 5
+        data[ret_name] = data[ret_name].groupby('permno', group_keys=False).apply(lambda x: x.rolling(window).sum().shift(-window+1), include_groups=False)
+
     return data[data[ret_name].notna()]
 
 

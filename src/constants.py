@@ -10,12 +10,13 @@ import numpy as np
 class Parameters:
     tree_depth: int = 4
     n_splits: int = 2
-    n_chars: int = 2
+    n_chars: int = 3
     mean_shrinkage: ClassVar[np.ndarray] = np.arange(0.1, 1, 0.1)
-    ridge_lambda: ClassVar[np.ndarray] = 0.1 ** np.arange(6, 9, 1)
-    cv_splits: int = 3
-    k_min: int = 5
+    ridge_lambda: ClassVar[np.ndarray] = 0.1 ** np.arange(1, 9, 1)
+    cv_splits: int = 2
+    k_min: int = 1
     k_max: int = 50
+    # test_size: int = 826
     test_size: int = 60
 
 
@@ -26,10 +27,10 @@ class Columns:
     size_col: str = 'mkt_cap'
     permno_col: str = 'permno'
     # returns_col: str = 'total_return_1d_gbp'
-    # returns_col: str = 'gross_returns'
-    returns_col: str = 'X1MFwdReturnLoc'
+    returns_col: str = 'gross_returns'
+    # returns_col: str = 'X1MFwdReturnLoc'
     w_returns_col: str = 'weighted_ret'
-    col_sep: str = '_'
+    col_sep: str = '/'
     node_col: str = 'node'
     port_col: str = 'port'
     features_col: str = 'features'
@@ -73,11 +74,11 @@ class Chars:
     # lt_rev: str = 'lt_rev'
     # lrunover: str = 'lturnover'
 
-    # val: str = 'val'
-    # qual: str = 'qual'
-    # trd: str = 'trd'
-    # sen: str = 'sen'
-    # fcf: str = 'fcf_rank'
+    val: str = 'val'
+    qual: str = 'qual'
+    trd: str = 'trd'
+    sen: str = 'sen'
+    fcf: str = 'fcf_rank'
     
     # capital_structure: str = "cap_structure"
     # growth: str = "growth"
@@ -94,16 +95,16 @@ class Chars:
     # stock_trend: str = "trdstock"
     # industry_trend: str = "trdind"
 
-    book_yield: str = "by"
-    accrual: str = "accrual_level"
-    vol: str = "X1MVolDaily"
-    momemtum: str = "mom_1y1m"
-    op: str = "Oper_Income_Total_Capital"
-    turnover: str = "turnover_3m"
-    reversal: str = "mom_1m"
-    lt_rev: str = "mom_6m"
-    inven_turnover: str = "Inven_Turnover" 
-    illiquid: str = 'X3MILLIQ'
+    # book_yield: str = "by"
+    # accrual: str = "accrual_level"
+    # vol: str = "X1MVolDaily"
+    # momemtum: str = "mom_1y1m"
+    # op: str = "Oper_Income_Total_Capital"
+    # turnover: str = "turnover_3m"
+    # reversal: str = "mom_1m"
+    # lt_rev: str = "mom_6m"
+    # inven_turnover: str = "Inven_Turnover" 
+    # illiquid: str = 'X3MILLIQ'
     lme: str = "lme"
     returns: str = 'ret'
 
@@ -163,8 +164,8 @@ class DataPaths:
     sep: str = '_'
     returns_file_name: str = 'ret'
     rf_factor_file_name: str = 'rf_factor'
-    model_dumps: Path = Path('model_dumps')
-    processed_data: Path = Path('processed_data')
+    model_dumps: Path = Path('model_dumps_split2')
+    processed_data: Path = Path('processed_data_split2')
     model_suffix: str = 'model.pkl'
 
     def merge_tuple(self, input_tuple: tuple[str, str]) -> str:

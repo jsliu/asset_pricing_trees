@@ -1,3 +1,4 @@
+# %%
 import pandas as pd
 import pickle
 import logging
@@ -10,9 +11,9 @@ from sklearn.model_selection import train_test_split
 from src.constants import DataPaths, Parameters, Columns
 
 
-def main(args: argparse.Namespace):
+def calc_sharpe(feature_combination):
     paths = DataPaths()
-    tree_portfolio = pd.read_pickle(paths.processed_data / f"{args.feature_combination}.pkl")
+    tree_portfolio = pd.read_pickle(paths.processed_data / f"{feature_combination}.pkl")
 
     logging.info("Selecting only returns")
     ret_indexes = tree_portfolio.index.get_level_values(Columns.features_col) == Columns.w_returns_col
@@ -23,7 +24,7 @@ def main(args: argparse.Namespace):
         tree_portfolio, test_size=Parameters.test_size, shuffle=False)
 
     logging.info('Loading model dump')
-    model_output_name = f"{args.feature_combination}{paths.sep}{paths.model_suffix}"
+    model_output_name = f"{feature_combination}{paths.sep}{paths.model_suffix}"
     with open(paths.model_dumps / model_output_name, 'rb') as f:
         ap_tree_model = pickle.load(f)
 
@@ -35,18 +36,28 @@ def main(args: argparse.Namespace):
         "k_nonzero": k_nonzero,
         "Sharpe": sharpe_values
     })
-    sns.lineplot(data=df_plot, x="k_nonzero", y="Sharpe", markers="o")    
+
+    mask = df_plot["Sharpe"] == df_plot["Sharpe"].max()
+    max_idx = df_plot.index[mask]
+    if len(max_idx) > 1:
+        best_combo = tree_portfolio.columns[np.unique(np.nonzero(ap_tree_model.betas[max_idx, :][1]))]
+        sdf_wei = ap_tree_model.betas[max_idx, :][1]
+    else:
+        best_combo = tree_portfolio.columns[np.nonzero(ap_tree_model.betas[max_idx, :])[1]]
+        sdf_wei = ap_tree_model.betas[max_idx, :]
+    w = sdf_wei[np.nonzero(sdf_wei)]
+    combo_wei = pd.Series(w/np.sum(np.abs(w)), index=best_combo, name='weight')
+    return df_plot, best_combo, combo_wei
+
+# %%
+if __name__ == '__main__':
+    feature_combination='qual_fcf_rank_lme'
+    sharpes, best_combo = calc_sharpe(feature_combination)
+    sns.lineplot(data=sharpes, x="k_nonzero", y="Sharpe", markers="o")    
     plt.xlabel("Number of non-zero betas (k)")
     plt.ylabel("Test Sharpe")
-    plt.title(f"Test Sharpe vs Sparsity: {args.feature_combination}")
+    plt.title(f"Test Sharpe vs Sparsity: {feature_combination}")
     plt.tight_layout()
     plt.show()
-
-
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Plotting test SR')
-    parser.add_argument('--feature_combination', default='lme_qual_trd')
-    arguments = parser.parse_args()
-    main(arguments)
 
 # %%

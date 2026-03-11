@@ -29,9 +29,9 @@ if __name__ == '__main__':
             'mean_shrinkage': Parameters.mean_shrinkage,
             'ridge_lambda': Parameters.ridge_lambda
         }
-        tscv = TimeSeriesSplit(n_splits=Parameters.n_splits)
+        tscv = TimeSeriesSplit(n_splits=Parameters.cv_splits)
         tree_model = TreeElastic(k_min=Parameters.k_min, k_max=Parameters.k_max)
-        cv_search = GridSearchCV(estimator=tree_model, param_grid=param_grid, verbose=3, cv=tscv, n_jobs=-1)
+        cv_search = GridSearchCV(estimator=tree_model, param_grid=param_grid, verbose=3, cv=tscv, n_jobs=None)
         cv_search.fit(train_val_portfolios)
 
         logging.info('Train overall model with tuned parameters')

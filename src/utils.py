@@ -2,7 +2,7 @@ from typing import List
 from pathlib import Path
 from tqdm import tqdm
 from itertools import product
-from .constants import Columns
+from src.constants import Columns
 
 import pandas as pd
 import modin.pandas as mpd

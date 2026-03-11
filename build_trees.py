@@ -6,9 +6,8 @@ from tqdm import tqdm
 from datetime import date
 
 from src.utils import build_tree_portfolio
-from src.tree_portfolio import build_tree_portfolio_best_split
 from src.constants import Columns, Chars, DataPaths, Parameters
-from src.preprocessing import read_ai_data, read_ei_data, read_db_data, read_big_universe
+from src.preprocessing import read_ei_data, read_db_data, read_big_universe
 
 
 
@@ -22,10 +21,9 @@ if __name__ == '__main__':
     print(f"Loading base characteristics in {reg}")
 
     features = list(chars.__dict__.values())[:-2]
-    # data, _, CHARAS_LIST, _ = read_ei_data(region_=reg, target=Columns.returns_col, ei_factors=features)
-    # data, _, CHARAS_LIST, _ = read_ai_data(region_=reg, data_saved=data_saved, target=Columns.returns_col, mean_features=False)
+    data, _, CHARAS_LIST, _ = read_ei_data(region_=reg, target=Columns.returns_col, ei_factors=features)
     # data = read_db_data(region_=reg, features=features, ret_name=Columns.returns_col, data_saved=data_saved)
-    data = read_big_universe(ret_name=Columns.returns_col, features=features)
+    # data = read_big_universe(ret_name=Columns.returns_col, features=features)
     ret_df = data[Columns.returns_col]
     # we don't have risk free return, but it close to 0, so we ignore 
     # raw_lme_df = read_rename_df(paths.input_data / f"{chars.lme}.csv")
@@ -56,8 +54,8 @@ if __name__ == '__main__':
     print(f"Start building the AP trees given the combinations of features")
     
     # Actually we don't need to always split on size
-    for char_comb in tqdm(chars.combinations_of_chars(k=Parameters.n_chars, exclude_chars=[chars.lme, chars.returns])):
-        feature_sequence = [chars.lme] + list(char_comb)
+    for char_comb in tqdm(chars.combinations_of_chars(k=Parameters.n_chars, exclude_chars=[chars.returns])):
+        feature_sequence = list(char_comb)
         output_file_name = f"{paths.sep}".join(feature_sequence)
         comb_df = data[feature_sequence].groupby('date').transform(lambda x: x.rank(method="min", pct=True))
         comb_df = pd.concat([merged_df, comb_df], axis=1)

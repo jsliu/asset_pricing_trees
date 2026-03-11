@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 from typing import List, Optional, Tuple, Dict
-from src.constants import Columns
+from constants import Columns
 
 # -------------------- Low-level helpers --------------------
 def _vw_ret_by_date(df: pd.DataFrame,
