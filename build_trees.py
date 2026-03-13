@@ -54,8 +54,10 @@ if __name__ == '__main__':
     print(f"Start building the AP trees given the combinations of features")
     
     # Actually we don't need to always split on size
-    for char_comb in tqdm(chars.combinations_of_chars(k=Parameters.n_chars, exclude_chars=[chars.returns])):
-        feature_sequence = list(char_comb)
+    for char_comb in tqdm(chars.combinations_of_chars(k=Parameters.n_chars, exclude_chars=[chars.lme, chars.returns])):
+    # for char_comb in tqdm(chars.combinations_of_chars(k=Parameters.n_chars, exclude_chars=[chars.returns])):
+        feature_sequence = [chars.lme] + list(char_comb)
+        # feature_sequence = list(char_comb)
         output_file_name = f"{paths.sep}".join(feature_sequence)
         comb_df = data[feature_sequence].groupby('date').transform(lambda x: x.rank(method="min", pct=True))
         comb_df = pd.concat([merged_df, comb_df], axis=1)

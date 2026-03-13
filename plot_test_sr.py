@@ -52,7 +52,7 @@ def calc_sharpe(feature_combination):
 # %%
 if __name__ == '__main__':
     feature_combination='qual_fcf_rank_lme'
-    sharpes, best_combo = calc_sharpe(feature_combination)
+    sharpes, best_combo, combo_wei = calc_sharpe(feature_combination)
     sns.lineplot(data=sharpes, x="k_nonzero", y="Sharpe", markers="o")    
     plt.xlabel("Number of non-zero betas (k)")
     plt.ylabel("Test Sharpe")

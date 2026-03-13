@@ -210,10 +210,11 @@ def read_ei_data(region_, end_date=None, target='gross_returns', ei_factors=None
 
     # remove stocks don't have returns
     train_no_na = train.loc[train[target].notna(), :]
-    valid_date = train_no_na.groupby('date').apply(lambda x: x.apply(lambda y: y.notna().sum()/len(y) > 0.5)).prod(axis=1)
-    vd_idx = valid_date[valid_date==1].index
-    valid_train = train_no_na.loc[idx[:, vd_idx], :]
-    valid_train = valid_train.fillna(valid_train.groupby('date').mean())
+    # # valid_date = train_no_na.groupby('date').apply(lambda x: x.apply(lambda y: y.notna().sum()/len(y) > 0.5)).prod(axis=1)
+    # vd_idx = valid_date[valid_date==1].index
+    # valid_train = train_no_na.loc[idx[:, vd_idx], :]
+    # valid_train = valid_train.fillna(valid_train.groupby('date').mean())
+    valid_train = train_no_na
     return valid_train, test, list(features) + ['mkt_cap'], test_dates
 
 

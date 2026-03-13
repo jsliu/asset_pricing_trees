@@ -35,14 +35,19 @@ if __name__ == '__main__':
         sharpe[str(i)] = {"Combo": feature_combination, "SR": max_sharpe["Sharpe"].max()}
         B = get_B_for_best_combo_over_time(data, best_combo=best_combo, weight_col=Columns.size_col, n_split=Parameters.n_splits, )
         stk_wei[feature_combination] = B.dot(combo_wei)
-    stock_weights = pd.DataFrame(stk_wei).mean(axis=1)
+    # %%
     sharpes = pd.DataFrame(sharpe).T.sort_values('SR').reset_index()
+    # stock_weights = pd.DataFrame(stk_wei).mean(axis=1)
+    stks_weis = pd.DataFrame(stk_wei)
+    tp_wei = sharpes.set_index('Combo')['SR']
+    stock_weights = stks_weis.fillna(0).dot(tp_wei.loc[stks_weis.columns])
+
     sharpes.plot(x='index', y='SR', legend=False, xlabel='Combo', ylabel='Sharpe Ratio')
     plt.show()
 
     ap_pnl = calc_fac_ret(stock_weights, data['gross_returns'].swaplevel(0, 1), q=5, date_col='date', score_weighted=False)
     ei_pnl = calc_fac_ret(data[features].mean(axis=1).swaplevel(0, 1), data['gross_returns'].swaplevel(0, 1), q=5, date_col='date', score_weighted=False)
-    pnl = pd.concat([ap_pnl, ei_pnl], axis=1)
+    pnl = pd.concat([ap_pnl, ei_pnl], axis=1).sort_index(ascending=True)
     pnl.index = pd.to_datetime(pnl.index, format="%Y%m%d")
     pnl.columns = ['Tree', 'EI']
     pnl.cumsum().plot()

@@ -16,7 +16,7 @@ def _build_node_columns(input_df: pd.DataFrame,
     Recreate 'node|k' integer labels (0..n_split-1) for each split level, exactly
     as in your add_portfolio_cols -> recursive_tree_grows path.
     """
-    tree_df = input_df[split_features].copy()
+    tree_df = input_df[split_features].dropna().copy()
     tree_df.groupby('date').transform(lambda x: x.rank(method='min', pct=True))
     tree_df.columns = [f"{Columns.node_col}{Columns.col_sep}{i}" for i in range(len(split_features))]
     # IMPORTANT: this must call YOUR splitter
@@ -126,6 +126,9 @@ def get_B_for_best_combo_at_date(
         if comb not in combo_to_sequence:
             raise KeyError(f"combo_to_sequence has no entry for '{comb}'. Provide the ordered split features.")
         sequence = combo_to_sequence[comb]
+
+        if df_t[sequence].dropna().empty:
+            continue
 
         # 1) Recompute node|k labels using YOUR splitter
         tree_df = _build_node_columns(df_t, sequence, n_split=n_split)

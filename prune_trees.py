@@ -31,7 +31,7 @@ if __name__ == '__main__':
         }
         tscv = TimeSeriesSplit(n_splits=Parameters.cv_splits)
         tree_model = TreeElastic(k_min=Parameters.k_min, k_max=Parameters.k_max)
-        cv_search = GridSearchCV(estimator=tree_model, param_grid=param_grid, verbose=3, cv=tscv, n_jobs=None)
+        cv_search = GridSearchCV(estimator=tree_model, param_grid=param_grid, verbose=3, cv=tscv, n_jobs=-1)
         cv_search.fit(train_val_portfolios)
 
         logging.info('Train overall model with tuned parameters')
