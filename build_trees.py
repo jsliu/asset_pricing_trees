@@ -7,7 +7,7 @@ from datetime import date
 
 from src.utils import build_tree_portfolio
 from src.constants import Columns, Chars, DataPaths, Parameters
-from src.preprocessing import read_ei_data, read_db_data, read_big_universe
+from src.preprocessing import cap_weight, read_ei_data, read_db_data, read_big_universe
 
 
 
@@ -15,7 +15,7 @@ if __name__ == '__main__':
     chars = Chars()
     paths = DataPaths()
 
-    reg = 'GL'
+    reg = 'US'
     data_saved = True
     logging.info(f"Loading base characteristics")
     print(f"Loading base characteristics in {reg}")
@@ -35,15 +35,16 @@ if __name__ == '__main__':
 
     logging.info(f"Transform base Size feature into quantiles")
     print(f"Transform base Size feature into quantiles")
-    raw_size_df = data[Columns.size_col]
+    raw_size_df = data[Columns.size_col].groupby('date').transform(lambda x: cap_weight(x))
     raw_size_df.name = Columns.size_col
-    lme_df = np.log(raw_size_df)
+    lme_df = np.log(data[Columns.size_col])
     lme_df.name = chars.lme
     # quantile_lme_df = rows_to_quantiles(raw_lme_df.copy())
 
     logging.info(f"Stack raw Size and Returns variables together")
     print(f"Stack raw Size and Returns variables together")
     data = pd.concat([data, lme_df,], axis=1)
+    
     merged_df = pd.concat([
         # unstack_df(raw_lme_df, Columns.size_col),
         # unstack_df(quantile_lme_df, chars.lme),
@@ -54,10 +55,10 @@ if __name__ == '__main__':
     print(f"Start building the AP trees given the combinations of features")
     
     # Actually we don't need to always split on size
-    for char_comb in tqdm(chars.combinations_of_chars(k=Parameters.n_chars, exclude_chars=[chars.lme, chars.returns])):
-    # for char_comb in tqdm(chars.combinations_of_chars(k=Parameters.n_chars, exclude_chars=[chars.returns])):
-        feature_sequence = [chars.lme] + list(char_comb)
-        # feature_sequence = list(char_comb)
+    # for char_comb in tqdm(chars.combinations_of_chars(k=Parameters.n_chars, exclude_chars=[chars.lme, chars.returns])):
+    for char_comb in tqdm(chars.combinations_of_chars(k=Parameters.n_chars, exclude_chars=[chars.returns])):
+        # feature_sequence = [chars.lme] + list(char_comb)
+        feature_sequence = list(char_comb)
         output_file_name = f"{paths.sep}".join(feature_sequence)
         comb_df = data[feature_sequence].groupby('date').transform(lambda x: x.rank(method="min", pct=True))
         comb_df = pd.concat([merged_df, comb_df], axis=1)
@@ -66,39 +67,24 @@ if __name__ == '__main__':
 
         # In the original implementation, the year start from 1964, thus excluding 1963 from the dataset
         comb_df[Columns.date_col] = pd.to_datetime(comb_df[Columns.date_col], format="%Y%m%d")
-        comb_df = comb_df[comb_df[Columns.date_col].apply(lambda x: x.year != 1963)]
+        valid_dates = comb_df[Columns.date_col].unique()[comb_df.groupby(Columns.date_col).size() > 100]
+        comb_df = comb_df[comb_df[Columns.date_col].apply(lambda x: x in valid_dates)]
 
         # Start building the tree portfolios
         portfolio = build_tree_portfolio(comb_df, feature_sequence, n_split=Parameters.n_splits, tree_depth=Parameters.tree_depth)
-        # portfolio = build_tree_portfolio_best_split(comb_df=comb_df,
-        #                                            feature_pool=feature_sequence,
-        #                                            report_features=feature_sequence,
-        #                                            n_split=Parameters.n_splits, 
-        #                                            tree_depth=Parameters.tree_depth,
-        #                                            date_col=Columns.date_col,
-        #                                            ret_col=Columns.returns_col,
-        #                                            w_col=Columns.size_col,
-        #                                            mean_shrink=0.05,
-        #                                            ridge=1e-4,
-        #                                            allow_feature_reuse=True,
-        #                                            min_leaf_obs=50,
-        #                                            min_T=24,
-        # )
-
-        # Get returns excess variable, but we use zero to replace it
-        # ret_mask = portfolio.index.get_level_values(Columns.features_col) == Columns.w_returns_col
-        # portfolio.iloc[ret_mask, :] = portfolio.iloc[ret_mask, :].sub(
-        #     rf_factor_df[portfolio.iloc[ret_mask, :].index.get_level_values(Columns.date_col)].tolist(), axis=0)
-
-        # Remove the trees that are solely based on the single characteristics
-        # (all combinations in max port are the same)
-        mask_one = (
-                portfolio.columns.get_level_values(Columns.port_col) ==
-                f"{Columns.port_col}{Columns.col_sep}{Parameters.tree_depth}")
-        mask_two = portfolio.columns.get_level_values(Columns.comb_col).isin(
-            ['_'.join([v] * Parameters.tree_depth) for v in feature_sequence])
-        mask = np.logical_and(mask_one, mask_two)
-        portfolio = portfolio.iloc[:, ~mask]
-        portfolio.to_pickle(paths.processed_data / f"{output_file_name}.pkl")
+        mask_one = portfolio[Columns.port_col] == f"{Columns.port_col}{Columns.col_sep}{Parameters.tree_depth}"
+        mask_two = portfolio.get_column(Columns.comb_col).is_in([Columns.col_sep.join([v] * Parameters.tree_depth) for v in feature_sequence])
+        mask = mask_one & mask_two
+        portfolio = portfolio.filter(~mask)
+        # mask_one = (
+        #         portfolio.columns.get_level_values(Columns.port_col) ==
+        #         f"{Columns.port_col}{Columns.col_sep}{Parameters.tree_depth}"
+        #         )
+        # mask_two = portfolio.columns.get_level_values(Columns.comb_col).isin(
+        #     ['_'.join([v] * Parameters.tree_depth) for v in feature_sequence]
+        #     )
+        # mask = np.logical_and(mask_one, mask_two)
+        # portfolio = portfolio.iloc[:, ~mask]
+        portfolio.write_parquet(paths.processed_data / f"{reg}_{output_file_name}.parquet")
 
 # %%
