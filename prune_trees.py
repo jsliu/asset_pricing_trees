@@ -48,7 +48,10 @@ def to_pandas(tree_file_path):
 def prune(tree_portfolio):
     logging.info('Splitting data')
     train_val_portfolios, test_portfolios = train_test_split(
-        tree_portfolio, test_size=Parameters.test_size, shuffle=False)
+        tree_portfolio, 
+        test_size=Parameters.test_size, 
+        shuffle=False
+        )
 
     param_grid = {
         'mean_shrinkage': Parameters.mean_shrinkage,
@@ -62,12 +65,6 @@ def prune(tree_portfolio):
         warnings.filterwarnings("ignore", category=ConvergenceWarning)
         cv_search.fit(train_val_portfolios)
 
-
-    # logging.info('Train overall model with tuned parameters')
-    # overall_model = TreeElastic(k_min=Parameters.k_min, k_max=Parameters.k_max,
-    #                             ridge_lambda=cv_search.best_params_['ridge_lambda'],
-    #                             mean_shrinkage=cv_search.best_params_['mean_shrinkage']
-    #                             )
     # overall_model.fit(train_val_portfolios)
     overall_model = cv_search.best_estimator_
     sdf = overall_model.predict(test_portfolios)
@@ -75,8 +72,9 @@ def prune(tree_portfolio):
     best_models = np.argmax(sharpe)
     return best_models, overall_model
 
+
 if __name__ == '__main__':
-    reg = 'US'
+    reg = 'GL'
     chars = Chars()
     paths = DataPaths()
     for tree_file_path in tqdm(paths.processed_data.iterdir()):

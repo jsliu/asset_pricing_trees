@@ -141,7 +141,7 @@ def get_B_for_best_combo_at_date(
         groups = df_with_ports.groupby(port_col).groups            # dict: node_id -> Int64Index of stocks
 
         # 4) Build weight vector for each requested node under this (comb, depth)
-        for (_c, _d, port_label, node_id) in [x for x in parsed if x[0] == comb and x[1] == depth]:
+        for (_, _, port_label, node_id) in [x for x in parsed if x[0] == comb and x[1] == depth]:
             if node_id not in groups:
                 out[(comb, port_label, node_id)] = pd.Series(0.0, index=all_names, name=f"{port_label}{Columns.col_sep}{node_id}")
                 continue

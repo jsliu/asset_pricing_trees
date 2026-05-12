@@ -15,7 +15,7 @@ if __name__ == '__main__':
     chars = Chars()
     paths = DataPaths()
 
-    reg = 'US'
+    reg = 'GL'
     data_saved = True
     logging.info(f"Loading base characteristics")
     print(f"Loading base characteristics in {reg}")
@@ -44,7 +44,7 @@ if __name__ == '__main__':
     logging.info(f"Stack raw Size and Returns variables together")
     print(f"Stack raw Size and Returns variables together")
     data = pd.concat([data, lme_df,], axis=1)
-    
+
     merged_df = pd.concat([
         # unstack_df(raw_lme_df, Columns.size_col),
         # unstack_df(quantile_lme_df, chars.lme),

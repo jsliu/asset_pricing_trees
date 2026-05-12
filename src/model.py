@@ -1,6 +1,6 @@
 import numpy as np
 import pandas as pd
-from sklearn.linear_model import LassoLars, ElasticNet
+from sklearn.linear_model import LassoLars, ElasticNet, lars_path
 from sklearn.base import BaseEstimator
 from scipy.linalg import eigh
 
@@ -17,7 +17,6 @@ class TreeElastic(BaseEstimator):
         self.mean_shrinkage = mean_shrinkage
         self.ridge_lambda = ridge_lambda
         self.base_model = LassoLars(alpha=1e-20, fit_intercept=False, random_state=42)
-        # self.base_model = ElasticNet(alpha=1e-6, l1_ratio=0.1,  fit_intercept=False, max_iter=20000, tol=1e-8)
         self.k_min = k_min
         self.k_max = k_max
         self.feature_weights = None
@@ -108,20 +107,19 @@ class TreeElastic(BaseEstimator):
 
     def fit(self, X: pd.DataFrame, y=None, *args, **kwargs) -> 'TreeElastic':
         feature_df = X.copy()
+        
+        # Feature weights
         self.feature_weights = self.get_feature_weights(feature_df)
-
         feature_df = feature_df.multiply(self.feature_weights)
 
         # Transform the returns into the model inputs
         input_x, input_y = self.process_input(feature_df)
-
         self.base_model.fit(input_x, input_y)
-        # Adjust coefficients and normalize
-        self.betas = (self.base_model.coef_path_.T * self.feature_weights)
 
-        # looks wrong here, should be sum(abs(betas))
-        # self.betas = (self.betas.T / (np.abs(np.sum(self.betas, axis=1)) + EPSILON)).T
-        self.betas = (self.betas.T / (np.sum(np.abs(self.betas), axis=1) + EPSILON)).T
+        # Adjust coefficients and normalize
+        self.betas = self.base_model.coef_path_.T * self.feature_weights
+        # self.betas = coef_path.T * self.feature_weights
+        self.betas = (self.betas.T / (np.abs(np.sum(self.betas, axis=1)) + EPSILON)).T
 
         num_not_zero = np.sum(self.betas != 0, axis=1)
         mask = (num_not_zero >= self.k_min) & (num_not_zero <= self.k_max)
@@ -130,41 +128,7 @@ class TreeElastic(BaseEstimator):
         else:
             self.betas = self.betas[mask]
         return self
-
-    # def fit(self, X: pd.DataFrame, y=None, *args, **kwargs) -> "TreeElastic":
-    #     feature_df = X.copy()
-
-    #     # Compute feature weights and re-weight raw features
-    #     self.feature_weights = self.get_feature_weights(feature_df)
-    #     feature_df = feature_df.multiply(self.feature_weights)
-
-    #     # Transform into (X, y) for SDF least-squares form
-    #     input_x, input_y = self.process_input(feature_df)
-
-    #     # ---- REPLACE LassoLars WITH ElasticNet ----
-    #     from sklearn.linear_model import ElasticNet
-
-
-    #     # Fit Elastic Net
-    #     self.base_model.fit(input_x, input_y)
-
-    #     # ElasticNet stores coeffs in .coef_ (not coef_path_)
-    #     raw_betas = self.base_model.coef_
-
-    #     # Adjust for feature weights
-    #     self.betas = raw_betas * self.feature_weights
-
-    #     # Normalize each beta vector to sum to ±1
-    #     norm = np.abs(np.sum(self.betas)) + EPSILON
-    #     self.betas = self.betas / norm
-
-    #     # Pruning rule: keep only beta vectors with k_min <= #nonzeros <= k_max
-    #     num_not_zero = np.sum(self.betas != 0)
-    #     if not (self.k_min <= num_not_zero <= self.k_max):
-    #         self.betas = np.zeros_like(self.betas)
-
-    #     return self
-
+    
     def predict(self, X: pd.DataFrame, y=None, *args, **kwargs) -> np.ndarray:
         feature_df = X.copy()
         feature_df = feature_df.multiply(self.feature_weights)

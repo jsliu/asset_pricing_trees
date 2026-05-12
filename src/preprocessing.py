@@ -254,3 +254,12 @@ def read_big_universe(features, ret_name="X1MFwdReturnLoc"):
     dates = data.index.levels[1]
     idx = pd.IndexSlice
     return data.loc[idx[:, dates[:-2]], :]
+
+def cap_weight(x, threshold=3):
+    """
+    cap the market cap
+    """
+    norm_x = (x - x.mean()) / x.std()
+    norm_x[norm_x < -threshold] = -threshold
+    norm_x[norm_x > threshold] = threshold
+    return norm_x / threshold + 1

@@ -10,14 +10,14 @@ import numpy as np
 class Parameters:
     tree_depth: int = 4
     n_splits: int = 2
-    n_chars: int = 2
+    n_chars: int = 3
     mean_shrinkage: ClassVar[np.ndarray] = np.arange(0.1, 1, 0.1)
-    ridge_lambda: ClassVar[np.ndarray] = 0.1 ** np.arange(4, 9, 1)
+    ridge_lambda: ClassVar[np.ndarray] = 0.1 ** np.arange(1, 9, 1)
     cv_splits: int = 2
-    k_min: int = 1
+    k_min: int = 10
     k_max: int = 50
     # test_size: int = 826
-    test_size: int = 60
+    test_size: int = 36
 
 
 @dataclass(frozen=True)
@@ -39,8 +39,8 @@ class Columns:
 
 @dataclass(init=False)
 class Years:
-    min_year: int = 1990
-    max_year: int = 2016
+    min_year: int = 2006
+    max_year: int = 2026
     __sort_index: int = 0
 
     def get_month_number(self, year: int, month: int = 0):
@@ -74,26 +74,26 @@ class Chars:
     # lt_rev: str = 'lt_rev'
     # lrunover: str = 'lturnover'
 
-    # val: str = 'val'
-    # qual: str = 'qual'
-    # trd: str = 'trd'
-    # sen: str = 'sen'
-    # fcf: str = 'fcf_rank'
+    val: str = 'val'
+    qual: str = 'qual'
+    trd: str = 'trd'
+    sen: str = 'sen'
+    fcf: str = 'fcf_rank'
     
-    capital_structure: str = "cap_structure"
-    growth: str = "growth"
-    profitability: str = "profitability"
-    accrual: str = "accrual"
-    investment: str = "investment"
-    dividend_yield: str = "dy_rank"
-    book_yield: str = "by_rank"
-    forward_earnings_yield: str = "fy1_ey_rank"
-    ebidta_to_ev: str = "ee_no_fin_rank"
-    free_cash_flow: str = "fcf_rank"
-    stock_sentiment: str = "senstock"
-    industry_sentiment: str = "senind"
-    stock_trend: str = "trdstock"
-    industry_trend: str = "trdind"
+    # capital_structure: str = "cap_structure"
+    # growth: str = "growth"
+    # profitability: str = "profitability"
+    # accrual: str = "accrual"
+    # investment: str = "investment"
+    # dividend_yield: str = "dy_rank"
+    # book_yield: str = "by_rank"
+    # forward_earnings_yield: str = "fy1_ey_rank"
+    # ebidta_to_ev: str = "ee_no_fin_rank"
+    # free_cash_flow: str = "fcf_rank"
+    # stock_sentiment: str = "senstock"
+    # industry_sentiment: str = "senind"
+    # stock_trend: str = "trdstock"
+    # industry_trend: str = "trdind"
 
     # book_yield: str = "by"
     # accrual: str = "accrual_level"
@@ -161,11 +161,14 @@ class Chars:
 @dataclass(frozen=True, init=False)
 class DataPaths:
     input_data: Path = Path('characteristics')
+    output: Path = Path('result')
     sep: str = '_'
     returns_file_name: str = 'ret'
     rf_factor_file_name: str = 'rf_factor'
-    model_dumps: Path = Path('model_dumps_sub_facs_split2')
-    processed_data: Path = Path('processed_data_sub_facs_split2')
+    model_dumps: Path = Path('model_dumps_split')
+    processed_data: Path = Path('processed_data_split')
+    combo_data: Path = Path('combo')
+    combo_weight: Path = Path('combo_wei')
     model_suffix: str = 'model.pkl'
 
     def merge_tuple(self, input_tuple: tuple[str, str]) -> str:

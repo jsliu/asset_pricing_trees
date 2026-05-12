@@ -22,7 +22,7 @@ if __name__ == '__main__':
     years = Years()
     paths = DataPaths()
     # regions = ['GL', 'US', 'EU', 'UK', 'JP', 'AP', 'EM']
-    regions = ['US', ]
+    regions = ['GL', ]
     for reg in regions:
         print(f'Processing {reg}')
         features = list(chars.__dict__.values())[:-2]
@@ -72,7 +72,7 @@ if __name__ == '__main__':
     years = Years()
     paths = DataPaths()
     # regions = ['GL', 'US', 'EU', 'UK', 'JP', 'AP', 'EM']
-    regions = ['GL', 'US']
+    regions = ['GL', 'US', 'EU', 'JP', 'EM']
     for reg in regions:
         print(f'Processing {reg}')
         features = list(chars.__dict__.values())[:-2]
@@ -90,4 +90,5 @@ if __name__ == '__main__':
         pnl.cumsum().plot(title=f'{reg}')
         plt.show()
         print(summary(pnl, ann_factor=12, sorted=False))
+        print(pnl.corr())
 # %%
