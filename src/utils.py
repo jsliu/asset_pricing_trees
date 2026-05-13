@@ -178,6 +178,7 @@ def tree_portfolio(
     feature_sequence,
     n_split: int,
     tree_depth: int,
+    min_node_size: int = 50
 ) -> pl.DataFrame:
     """
     Build tree portfolio using pure Polars logic.
@@ -232,7 +233,15 @@ def tree_portfolio(
                 node_col = f"{Columns.node_col}{Columns.col_sep}{k_subseq}"
                 expr = expr + pl.col(node_col) * (n_split ** (i_seq - k_subseq - 1))
 
-            df_i = df.with_columns(expr.alias(Columns.node_col))
+            # df_i = df.with_columns(expr.alias(Columns.node_col))
+            df_i = (
+                df
+                .with_columns(expr.alias(Columns.node_col))
+                .with_columns(
+                    pl.count().over([Columns.date_col, Columns.node_col]).alias("node_count")
+                )
+                .filter(pl.col("node_count") >= min_node_size)
+            )          
 
             # --------------------------------------------------
             # 4. Polars-native aggregation (FAST)

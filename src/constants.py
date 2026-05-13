@@ -14,7 +14,7 @@ class Parameters:
     mean_shrinkage: ClassVar[np.ndarray] = np.arange(0.1, 1, 0.1)
     ridge_lambda: ClassVar[np.ndarray] = 0.1 ** np.arange(1, 9, 1)
     cv_splits: int = 2
-    k_min: int = 10
+    k_min: int = 5
     k_max: int = 50
     # test_size: int = 826
     test_size: int = 36

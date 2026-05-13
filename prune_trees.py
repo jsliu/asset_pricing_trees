@@ -1,3 +1,4 @@
+# %%
 import pandas as pd
 import polars as pl
 import numpy as np
@@ -41,7 +42,7 @@ def to_pandas(tree_file_path):
         ],
         names=[Columns.comb_col, Columns.port_col, Columns.node_col],
     )
-    return tree_portfolio_pd
+    return tree_portfolio_pd.loc[:, ~tree_portfolio_pd.T.duplicated()]
 
 
 
@@ -52,6 +53,9 @@ def prune(tree_portfolio):
         test_size=Parameters.test_size, 
         shuffle=False
         )
+
+    test_portfolios = test_portfolios.dropna(axis=1, how="all").fillna(0)
+    train_val_portfolios = train_val_portfolios[test_portfolios.columns].fillna(0)
 
     param_grid = {
         'mean_shrinkage': Parameters.mean_shrinkage,
@@ -72,21 +76,25 @@ def prune(tree_portfolio):
     best_models = np.argmax(sharpe)
     return best_models, overall_model
 
-
+# %%
 if __name__ == '__main__':
-    reg = 'GL'
     chars = Chars()
     paths = DataPaths()
-    for tree_file_path in tqdm(paths.processed_data.iterdir()):
-        if tree_file_path.suffix != '.parquet':
-            continue
-        if reg not in tree_file_path.name:
-            continue
+    regions = ['GL', 'US', 'UK', 'EU', 'AP', 'JP', 'EM']
+    for reg in regions:
+        print(f"Pruning tree in {reg}")
+        for tree_file_path in tqdm(paths.processed_data.iterdir()):
+            if tree_file_path.suffix != '.parquet':
+                continue
+            if reg not in tree_file_path.name:
+                continue
 
-        tree_portfolio_pd = to_pandas(tree_file_path)
-        _, overall_model = prune(tree_portfolio_pd)
+            tree_portfolio_pd = to_pandas(tree_file_path)
+            _, overall_model = prune(tree_portfolio_pd)
 
-        model_output_name = f"{tree_file_path.with_suffix('').name}{paths.sep}{paths.model_suffix}"
-        with open(paths.model_dumps / model_output_name, 'wb') as f:
-            pickle.dump(overall_model, f)
+            model_output_name = f"{tree_file_path.with_suffix('').name}{paths.sep}{paths.model_suffix}"
+            with open(paths.model_dumps / model_output_name, 'wb') as f:
+                pickle.dump(overall_model, f)
 
+
+# %%

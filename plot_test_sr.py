@@ -18,6 +18,8 @@ def calc_sharpe(tree_portfolio, ap_tree_model):
     _, test_portfolios = train_test_split(
         tree_portfolio, test_size=Parameters.test_size, shuffle=False)
 
+    test_portfolios = test_portfolios.dropna(axis=1, how="all").fillna(0)
+    
     sdf = ap_tree_model.predict(test_portfolios)
     sharpe_values = np.mean(sdf, axis=0) / (np.std(sdf, axis=0) + 1e-20)
     k_nonzero = np.sum(ap_tree_model.betas != 0, axis=1)
@@ -53,35 +55,37 @@ if __name__ == '__main__':
     # plt.title(f"Test Sharpe vs Sparsity: {feature_combination}")
     # plt.tight_layout()
     # plt.show()
-    reg = 'GL'
+    regions = ['UK', 'EU', 'AP', 'JP', 'EM']
     paths = DataPaths()
-    all_combos = pd.DataFrame()
-    all_portfolios = pd.DataFrame()
-    for tree_file_path in tqdm(paths.processed_data.iterdir()):
-        if tree_file_path.suffix != '.parquet':
-            continue
-        if reg not in tree_file_path.name:
-            continue
+    for reg in regions:
+        print(f"Processing in {reg}")
+        all_combos = pd.DataFrame()
+        all_portfolios = pd.DataFrame()
+        for tree_file_path in tqdm(paths.processed_data.iterdir()):
+            if tree_file_path.suffix != '.parquet':
+                continue
+            if reg not in tree_file_path.name:
+                continue
+            
+            # logging.info('Loading model dump')
+            feature_combination = tree_file_path.stem
+            model_output_name = f"{feature_combination}{paths.sep}{paths.model_suffix}"
+            with open(paths.model_dumps / model_output_name, 'rb') as f:
+                ap_tree_model = pickle.load(f)
+            tree_portfolio = to_pandas(tree_file_path)
+            sharpes, combo_wei = calc_sharpe(tree_portfolio, ap_tree_model)
+            all_combos = pd.concat([all_combos, combo_wei])
+            all_portfolios = pd.concat([all_portfolios, tree_portfolio[combo_wei.index]], axis=1)
         
-        # logging.info('Loading model dump')
-        feature_combination = tree_file_path.stem
-        model_output_name = f"{feature_combination}{paths.sep}{paths.model_suffix}"
-        with open(paths.model_dumps / model_output_name, 'rb') as f:
-            ap_tree_model = pickle.load(f)
-        tree_portfolio = to_pandas(tree_file_path)
-        sharpes, combo_wei = calc_sharpe(tree_portfolio, ap_tree_model)
-        all_combos = pd.concat([all_combos, combo_wei])
-        all_portfolios = pd.concat([all_portfolios, tree_portfolio[combo_wei.index]], axis=1)
-    
-    all_train_portfolios, all_test_portfolios = train_test_split(all_portfolios, test_size=Parameters.test_size, shuffle=False)
-    final_best_model, final_model = prune(all_train_portfolios)
-    # sdf = final_model.predict(all_test_portfolios)
-    all_sharpes, all_combo_wei = calc_sharpe(all_portfolios, final_model)
-    sns.lineplot(data=all_sharpes, x="k_nonzero", y="Sharpe", markers="o")    
-    plt.xlabel("Number of non-zero weights (k)")
-    plt.ylabel("Test Sharpe")
-    plt.title(f"Test Sharpe vs Sparsity: {feature_combination}")
-    plt.tight_layout()
-    plt.show()
+        all_portfolios = all_portfolios.loc[:, ~all_portfolios.columns.duplicated()]
+        final_best_model, final_model = prune(all_portfolios)
+        # sdf = final_model.predict(all_test_portfolios)
+        all_sharpes, all_combo_wei = calc_sharpe(all_portfolios, final_model)
+        sns.lineplot(data=all_sharpes, x="k_nonzero", y="Sharpe", markers="o")    
+        plt.xlabel("Number of non-zero weights (k)")
+        plt.ylabel("Test Sharpe")
+        plt.title(f"Test Sharpe vs Sparsity")
+        plt.tight_layout()
+        plt.show()
 
 # %%
