@@ -72,8 +72,8 @@ def prune(tree_portfolio):
     # overall_model.fit(train_val_portfolios)
     overall_model = cv_search.best_estimator_
     sdf = overall_model.predict(test_portfolios)
-    sharpe = sdf.mean() / (sdf.std() + 1e-20)
-    best_models = np.argmax(sharpe)
+    sharpe_ratio = sdf.mean() / (sdf.std() + 1e-20)
+    best_models = np.argmax(sharpe_ratio)
     return best_models, overall_model
 
 # %%
@@ -81,6 +81,7 @@ if __name__ == '__main__':
     chars = Chars()
     paths = DataPaths()
     regions = ['GL', 'US', 'UK', 'EU', 'AP', 'JP', 'EM']
+    # regions = ['GL', ]
     for reg in regions:
         print(f"Pruning tree in {reg}")
         for tree_file_path in tqdm(paths.processed_data.iterdir()):

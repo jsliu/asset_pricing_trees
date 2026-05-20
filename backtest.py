@@ -1,17 +1,17 @@
 # %%
 import pandas as pd
-import polars as pl
 import logging
 import numpy as np
 import seaborn as sns
 import matplotlib.pyplot as plt
-from sklearn.model_selection import TimeSeriesSplit, GridSearchCV, train_test_split
 from tqdm import tqdm
 
+from plot_test_sr import calc_sharpe
 from prune_trees import prune, to_pandas
 from src.constants import DataPaths, Parameters, Columns, Chars, Years
 from src.functions import calc_fac_ret, summary
 from src.preprocessing import read_ei_data
+
 
 
 # %%
@@ -21,12 +21,13 @@ if __name__ == '__main__':
     chars = Chars()
     years = Years()
     paths = DataPaths()
-    # regions = ['GL', 'US', 'EU', 'UK', 'JP', 'AP', 'EM']
-    regions = ['GL', ]
+    regions = ['GL', 'US', 'EU', 'UK', 'JP', 'AP', 'EM']
+    # regions = ['GL', ]
     for reg in regions:
         print(f'Processing {reg}')
         features = list(chars.__dict__.values())[:-2]
-        data, _, CHARAS_LIST, _ = read_ei_data(region_=reg, target=Columns.returns_col, ei_factors=features)
+        data, _, CHARAS_LIST, _ = read_ei_data(region_=reg, target='gross_returns', ei_factors=features)
+        data.loc[:, Columns.returns_col] = data['gross_returns'] - data[['gross_returns', Columns.size_col]].groupby(Columns.date_col).apply(lambda x: x.prod(axis=1).sum() / x[Columns.size_col].sum())
         data.loc[:, 'lme'] = np.log(data[Columns.size_col])
         dates = pd.to_datetime(data.index.get_level_values('date').unique(), format="%Y%m%d")[:-1]
 
@@ -34,6 +35,8 @@ if __name__ == '__main__':
         pnl = {}
         rets = pd.Series(index=dates)
         for i, d in enumerate(dates):
+            # if i < 200:
+            #     continue
             if d.year < years.min_year:
                 continue 
             print(f"Processing {d} ...")
@@ -56,23 +59,22 @@ if __name__ == '__main__':
                 train_portfolios = pd.concat([train_portfolios, train_val_portfolio.iloc[:, np.nonzero(overall_model.betas[best_model, :])[0]]], axis=1)
                 test_portfolios = pd.concat([test_portfolios, test_portfolio.iloc[:, np.nonzero(overall_model.betas[best_model, :])[0]]], axis=1)
 
-            all_train_portfolios = train_portfolios.loc[:, ~train_portfolios.columns.duplicated()]
-            all_test_portfolios = test_portfolios.loc[:, ~test_portfolios.columns.duplicated()]
+            all_test_portfolios = test_portfolios.loc[:, ~(test_portfolios.T.duplicated() | test_portfolios.columns.duplicated())]
+            all_train_portfolios = train_portfolios.loc[:, ~train_portfolios.columns.duplicated()][all_test_portfolios.columns]
             final_best_model, final_model = prune(all_train_portfolios)
+            final_sharpes, final_combo_wei = calc_sharpe(all_train_portfolios, final_model)
             sdf = final_model.predict(all_test_portfolios)
             rets.loc[d] = sdf[final_best_model].to_numpy()
         rets.dropna().cumsum().plot()
         plt.show()
-        rets.to_csv(paths.output / f'{reg}_ret.csv')
+        rets.dropna().to_csv(paths.output / f'{reg}_ret.csv')
     # %% 
-    # w = w - np.mean(w)
-    # combo_wei = pd.Series(w/np.sum(np.abs(w)), index=best_combo, name='weight')
     sns.set_theme()
     chars = Chars()
     years = Years()
     paths = DataPaths()
-    # regions = ['GL', 'US', 'EU', 'UK', 'JP', 'AP', 'EM']
-    regions = ['GL', 'US', 'EU', 'JP', 'EM']
+    regions = ['GL', 'US', 'EU', 'UK', 'JP', 'AP', 'EM']
+    # regions = ['GL', ]
     for reg in regions:
         print(f'Processing {reg}')
         features = list(chars.__dict__.values())[:-2]
@@ -84,9 +86,9 @@ if __name__ == '__main__':
         ei_pnl = calc_fac_ret(data[features].mean(axis=1).swaplevel(0, 1), data['gross_returns'].swaplevel(0, 1), q=5, date_col='date', score_weighted=True)
         ei_pnl.index = pd.to_datetime(ei_pnl.index, format="%Y%m%d")
         pnl = pd.concat([ai_pnl, ei_pnl], axis=1).dropna()
-        comb_pnl = pnl.mean(axis=1)
-        pnl = pd.concat([pnl, comb_pnl], axis=1)
-        pnl.columns = ['Tree', 'EI', 'Combined']
+        pnl.columns = ['Tree', 'EI']
+        pnl['Combined'] = pnl['EI'] * 0.8 + pnl['Tree'] * 0.2
+        # pnl = pd.concat([pnl, comb_pnl], axis=1)
         pnl.cumsum().plot(title=f'{reg}')
         plt.show()
         print(summary(pnl, ann_factor=12, sorted=False))

@@ -103,7 +103,8 @@ class TreeElastic(BaseEstimator):
             int(c.replace(f"{Columns.port_col}{Columns.col_sep}", ""))
             for c in feature_df.columns.get_level_values(Columns.port_col)
         ])
-        return 1 / np.sqrt(2 ** depth_per_col)
+        return pd.Series(1 / np.sqrt(2 ** depth_per_col), index=feature_df.columns)
+        # return 1 / np.sqrt(2 ** depth_per_col)
 
     def fit(self, X: pd.DataFrame, y=None, *args, **kwargs) -> 'TreeElastic':
         feature_df = X.copy()
@@ -117,9 +118,18 @@ class TreeElastic(BaseEstimator):
         self.base_model.fit(input_x, input_y)
 
         # Adjust coefficients and normalize
-        self.betas = self.base_model.coef_path_.T * self.feature_weights
-        # self.betas = coef_path.T * self.feature_weights
-        self.betas = (self.betas.T / (np.abs(np.sum(self.betas, axis=1)) + EPSILON)).T
+        self.betas = self.base_model.coef_path_.T * self.feature_weights.to_numpy()
+
+        # This forces the sum of betas being 0
+        betas_tmp = self.betas.copy()
+        betas_mask = betas_tmp != 0
+        counts = betas_mask.sum(axis=1, keepdims=True)
+        counts = np.where(counts == 0, 1, counts)
+        row_means = (betas_tmp * betas_mask).sum(axis=1, keepdims=True) / counts
+        self.betas = betas_tmp - row_means * betas_mask
+
+        # This forces the sum of betas being 1
+        # self.betas = (self.betas.T / (np.abs(np.sum(self.betas, axis=1)) + EPSILON)).T
 
         num_not_zero = np.sum(self.betas != 0, axis=1)
         mask = (num_not_zero >= self.k_min) & (num_not_zero <= self.k_max)
@@ -130,9 +140,10 @@ class TreeElastic(BaseEstimator):
         return self
     
     def predict(self, X: pd.DataFrame, y=None, *args, **kwargs) -> np.ndarray:
-        feature_df = X.copy()
+        # feature_df = X.copy()
+        feature_df = X[self.feature_weights.index]
         feature_df = feature_df.multiply(self.feature_weights)
-        return feature_df @ (self.betas / self.feature_weights).T
+        return feature_df @ (self.betas / self.feature_weights.to_numpy()).T
 
     def score(self, X: pd.DataFrame, y=None, *args, **kwargs):
         sdf = self.predict(X)

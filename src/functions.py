@@ -19,6 +19,11 @@ import AIalpha.src.main.python.aialpha.functions as f
 import pandas as pd
 import numpy as np
 
+def scale(x):
+    s_x = x.copy()
+    s_x[x>=0] = x[x>=0]/sum(x[x>=0])
+    s_x[x<0] = x[x<0] / sum(np.abs(x[x<0]))
+    return s_x
 
 def average(y, type='ewm', halflife=None):
     if isinstance(y, pd.Series):

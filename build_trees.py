@@ -16,16 +16,18 @@ if __name__ == '__main__':
     paths = DataPaths()
 
     data_saved = True
-    regions = ['UK', 'EU', 'AP', 'JP', 'EM']
+    # regions = ['GL', 'US', 'UK', 'EU', 'AP', 'JP', 'EM']
+    regions = ['JP', ]
     for reg in regions:
         logging.info(f"Loading base characteristics")
         print(f"Loading base characteristics in {reg}")
 
         features = list(chars.__dict__.values())[:-2]
-        data, _, CHARAS_LIST, _ = read_ei_data(region_=reg, target=Columns.returns_col, ei_factors=features)
+        data, _, CHARAS_LIST, _ = read_ei_data(region_=reg, target='gross_returns', ei_factors=features)
         # data = read_db_data(region_=reg, features=features, ret_name=Columns.returns_col, data_saved=data_saved)
         # data = read_big_universe(ret_name=Columns.returns_col, features=features)
-        ret_df = data[Columns.returns_col]
+        ret_df = data['gross_returns'] - data[['gross_returns', Columns.size_col]].groupby(Columns.date_col).apply(lambda x: x.prod(axis=1).sum() / x[Columns.size_col].sum())
+        ret_df.name = Columns.returns_col
 
         logging.info(f"Transform base Size feature into quantiles")
         print(f"Transform base Size feature into quantiles")
@@ -63,9 +65,13 @@ if __name__ == '__main__':
 
             # Start building the tree portfolios
             portfolio = build_tree_portfolio(comb_df, feature_sequence, n_split=Parameters.n_splits, tree_depth=Parameters.tree_depth)
+            # the first two mask working together to remove node which is alwasy split by same characteristcs to the bottom of the tree
             mask_one = portfolio[Columns.port_col] == f"{Columns.port_col}{Columns.col_sep}{Parameters.tree_depth}"
             mask_two = portfolio.get_column(Columns.comb_col).is_in([Columns.col_sep.join([v] * Parameters.tree_depth) for v in feature_sequence])
-            mask = mask_one & mask_two
+            # the third mask remove the root node where represents the market portfolio
+            mask_three = portfolio[Columns.port_col] == f"{Columns.port_col}{Columns.col_sep}0"
+            mask = (mask_one & mask_two) | mask_three
+            # mask = (mask_one & mask_two)
             portfolio = portfolio.filter(~mask)
             portfolio.write_parquet(paths.processed_data / f"{reg}_{output_file_name}.parquet")
 

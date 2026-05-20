@@ -27,7 +27,7 @@ class Columns:
     size_col: str = 'mkt_cap'
     permno_col: str = 'permno'
     # returns_col: str = 'total_return_1d_gbp'
-    returns_col: str = 'gross_returns'
+    returns_col: str = 'excess_returns'
     # returns_col: str = 'X1MFwdReturnLoc'
     w_returns_col: str = 'weighted_ret'
     col_sep: str = '/'
