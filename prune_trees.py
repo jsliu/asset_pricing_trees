@@ -17,9 +17,6 @@ def to_pandas(tree_file_path):
     tree_portfolio = pl.read_parquet(tree_file_path)
 
     logging.info("Selecting only returns")
-    # ret_indexes = tree_portfolio.index.get_level_values(Columns.features_col) == Columns.w_returns_col
-    # tree_portfolio = tree_portfolio[ret_indexes]
-    
     tree_portfolio_pd = (
         tree_portfolio
         .pivot(
@@ -55,6 +52,8 @@ def prune(tree_portfolio):
         )
 
     test_portfolios = test_portfolios.dropna(axis=1, how="all").fillna(0)
+    # valid_rows = train_val_portfolios[test_portfolios.columns].isna().sum(axis=1) / train_val_portfolios.shape[1] < 0.1
+    # train_val_portfolios = train_val_portfolios[test_portfolios.columns][valid_rows].fillna(0)
     train_val_portfolios = train_val_portfolios[test_portfolios.columns].fillna(0)
 
     param_grid = {
@@ -84,7 +83,8 @@ if __name__ == '__main__':
     # regions = ['GL', ]
     for reg in regions:
         print(f"Pruning tree in {reg}")
-        for tree_file_path in tqdm(paths.processed_data.iterdir()):
+        files = list(paths.processed_data.iterdir())
+        for tree_file_path in tqdm(files):
             if tree_file_path.suffix != '.parquet':
                 continue
             if reg not in tree_file_path.name:

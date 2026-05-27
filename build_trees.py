@@ -1,6 +1,7 @@
 # %%
 import numpy as np
 import pandas as pd
+import polars as pl
 import logging
 from tqdm import tqdm
 from datetime import date
@@ -15,9 +16,9 @@ if __name__ == '__main__':
     chars = Chars()
     paths = DataPaths()
 
-    data_saved = True
+    data_saved = False
     # regions = ['GL', 'US', 'UK', 'EU', 'AP', 'JP', 'EM']
-    regions = ['JP', ]
+    regions = ['GL', ]
     for reg in regions:
         logging.info(f"Loading base characteristics")
         print(f"Loading base characteristics in {reg}")
@@ -25,7 +26,7 @@ if __name__ == '__main__':
         features = list(chars.__dict__.values())[:-2]
         data, _, CHARAS_LIST, _ = read_ei_data(region_=reg, target='gross_returns', ei_factors=features)
         # data = read_db_data(region_=reg, features=features, ret_name=Columns.returns_col, data_saved=data_saved)
-        # data = read_big_universe(ret_name=Columns.returns_col, features=features)
+        # data = read_big_universe(ret_name='gross_returns', features=features)
         ret_df = data['gross_returns'] - data[['gross_returns', Columns.size_col]].groupby(Columns.date_col).apply(lambda x: x.prod(axis=1).sum() / x[Columns.size_col].sum())
         ret_df.name = Columns.returns_col
 
@@ -49,7 +50,7 @@ if __name__ == '__main__':
         
         # Actually we don't need to always split on size
         # for char_comb in tqdm(chars.combinations_of_chars(k=Parameters.n_chars, exclude_chars=[chars.lme, chars.returns])):
-        for char_comb in tqdm(chars.combinations_of_chars(k=Parameters.n_chars, exclude_chars=[chars.returns])):
+        for char_comb in tqdm(chars.combinations_of_chars(k=Parameters.n_chars, exclude_chars=[chars.lme, chars.returns])):
             # feature_sequence = [chars.lme] + list(char_comb)
             feature_sequence = list(char_comb)
             output_file_name = f"{paths.sep}".join(feature_sequence)
@@ -61,10 +62,10 @@ if __name__ == '__main__':
             # In the original implementation, the year start from 1964, thus excluding 1963 from the dataset
             comb_df[Columns.date_col] = pd.to_datetime(comb_df[Columns.date_col], format="%Y%m%d")
             valid_dates = comb_df[Columns.date_col].unique()[comb_df.groupby(Columns.date_col).size() > 100]
-            comb_df = comb_df[comb_df[Columns.date_col].apply(lambda x: x in valid_dates)]
+            comb_pl = pl.from_pandas(comb_df[comb_df[Columns.date_col].apply(lambda x: x in valid_dates)])
 
             # Start building the tree portfolios
-            portfolio = build_tree_portfolio(comb_df, feature_sequence, n_split=Parameters.n_splits, tree_depth=Parameters.tree_depth)
+            portfolio = build_tree_portfolio(comb_pl, feature_sequence, n_split=Parameters.n_splits, tree_depth=Parameters.tree_depth)
             # the first two mask working together to remove node which is alwasy split by same characteristcs to the bottom of the tree
             mask_one = portfolio[Columns.port_col] == f"{Columns.port_col}{Columns.col_sep}{Parameters.tree_depth}"
             mask_two = portfolio.get_column(Columns.comb_col).is_in([Columns.col_sep.join([v] * Parameters.tree_depth) for v in feature_sequence])

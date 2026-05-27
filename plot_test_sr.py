@@ -89,31 +89,36 @@ if __name__ == '__main__':
     all_combo_wei = {}
     regions = ['GL', 'US', 'UK', 'EU', 'AP', 'JP', 'EM']
     # regions = ['GL', ]
+    saved = False
     paths = DataPaths()
     for reg in regions:
         print(f"Processing in {reg}")
-        all_combos = pd.DataFrame()
-        all_portfolios = pd.DataFrame()
-        for tree_file_path in tqdm(paths.processed_data.iterdir()):
-            if tree_file_path.suffix != '.parquet':
-                continue
-            if reg not in tree_file_path.name:
-                continue
-            
-            # logging.info('Loading model dump')
-            feature_combination = tree_file_path.stem
-            model_output_name = f"{feature_combination}{paths.sep}{paths.model_suffix}"
-            with open(paths.model_dumps / model_output_name, 'rb') as f:
-                ap_tree_model = pickle.load(f)
-            tree_portfolio = to_pandas(tree_file_path)
-            sharpes, combo_wei = calc_sharpe(tree_portfolio, ap_tree_model, use_test_data=False)
-            all_combos = pd.concat([all_combos, combo_wei])
-            all_portfolios = pd.concat([all_portfolios, tree_portfolio[combo_wei.index]], axis=1)
+        if not saved:
+            all_combos = pd.DataFrame()
+            all_portfolios = pd.DataFrame()
+            files = list(paths.processed_data.iterdir())
+            for tree_file_path in tqdm(files):
+                if tree_file_path.suffix != '.parquet':
+                    continue
+                if reg not in tree_file_path.name:
+                    continue
+                
+                # logging.info('Loading model dump')
+                feature_combination = tree_file_path.stem
+                model_output_name = f"{feature_combination}{paths.sep}{paths.model_suffix}"
+                with open(paths.model_dumps / model_output_name, 'rb') as f:
+                    ap_tree_model = pickle.load(f)
+                tree_portfolio = to_pandas(tree_file_path)
+                sharpes, combo_wei = calc_sharpe(tree_portfolio, ap_tree_model, use_test_data=False)
+                all_combos = pd.concat([all_combos, combo_wei])
+                all_portfolios = pd.concat([all_portfolios, tree_portfolio[combo_wei.index]], axis=1)
         
+            all_portfolios = all_portfolios.loc[:, ~(all_portfolios.T.duplicated() | all_portfolios.columns.duplicated())]
+            # all_portfolios.to_parquet(f"{reg}_all_port.parquet")
+        else:
+            all_portfolios = pd.read_parquet(f"{reg}_all_port.parquet")
         # some columns eventhough they have same column name, the values are not identical, but 99% correlated
-        all_portfolios = all_portfolios.loc[:, ~(all_portfolios.T.duplicated() | all_portfolios.columns.duplicated())]
         _, final_model = prune(all_portfolios)
-        # sdf = final_model.predict(all_test_portfolios)
         all_sharpes, all_wei = calc_sharpe(all_portfolios, final_model, use_test_data=True)
         all_combo_wei[reg] = scale(all_wei)
         plot_sharpe(all_sharpes)

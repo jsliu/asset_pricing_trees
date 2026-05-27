@@ -258,9 +258,6 @@ def tree_portfolio(
 
                     *agg_exprs,
                 ])
-                # .with_columns(
-                #     pl.lit(i_seq).alias(Columns.node_col)
-                # )
             )
 
             port_dict[port_col] = grouped
@@ -272,15 +269,12 @@ def tree_portfolio(
     return all_trees
 
 
-def build_tree_portfolio(comb_df: pd.DataFrame, feature_sequence: List[str], n_split: int = 2, tree_depth: int = 4):
-    comb_pl = pl.from_pandas(comb_df)
+def build_tree_portfolio(comb_pl: pl.DataFrame, feature_sequence: List[str], n_split: int = 2, tree_depth: int = 4):
+    # comb_pl = pl.from_pandas(comb_df)
     portfolio_dict = tree_portfolio(comb_pl, feature_sequence, n_split, tree_depth)
     portfolio = pl.concat([
             df.with_columns(pl.lit(key).alias(Columns.comb_col)) for key, df in portfolio_dict.items()
         ], how='vertical')
-    # portfolio = pd.concat(portfolio_dict, axis=1).T.drop_duplicates().T
-    # portfolio.index.names = [Columns.date_col, Columns.features_col]
-    # portfolio.columns.names = [Columns.comb_col, Columns.port_col, Columns.node_col]
     return portfolio
 
 

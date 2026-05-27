@@ -17,77 +17,75 @@ from src.preprocessing import read_ei_data
 # %%
 # Running backtest
 if __name__ == '__main__':
-    sns.set_theme()
-    chars = Chars()
-    years = Years()
-    paths = DataPaths()
-    regions = ['GL', 'US', 'EU', 'UK', 'JP', 'AP', 'EM']
-    # regions = ['GL', ]
-    for reg in regions:
-        print(f'Processing {reg}')
-        features = list(chars.__dict__.values())[:-2]
-        data, _, CHARAS_LIST, _ = read_ei_data(region_=reg, target='gross_returns', ei_factors=features)
-        data.loc[:, Columns.returns_col] = data['gross_returns'] - data[['gross_returns', Columns.size_col]].groupby(Columns.date_col).apply(lambda x: x.prod(axis=1).sum() / x[Columns.size_col].sum())
-        data.loc[:, 'lme'] = np.log(data[Columns.size_col])
-        dates = pd.to_datetime(data.index.get_level_values('date').unique(), format="%Y%m%d")[:-1]
+    # sns.set_theme()
+    # chars = Chars()
+    # years = Years()
+    # paths = DataPaths()
+    # regions = ['GL', 'US', 'EU', 'UK', 'JP', 'AP', 'EM']
+    # # regions = ['GL', ]
+    # for reg in regions:
+    #     print(f'Processing {reg}')
+    #     features = list(chars.__dict__.values())[:-2]
+    #     data, _, CHARAS_LIST, _ = read_ei_data(region_=reg, target='gross_returns', ei_factors=features)
+    #     data.loc[:, Columns.returns_col] = data['gross_returns'] - data[['gross_returns', Columns.size_col]].groupby(Columns.date_col).apply(lambda x: x.prod(axis=1).sum() / x[Columns.size_col].sum())
+    #     data.loc[:, 'lme'] = np.log(data[Columns.size_col])
+    #     # dates = pd.to_datetime(data.index.get_level_values('date').unique(), format="%Y%m%d")[:-1]
+    #     dates = data.index.get_level_values('date').unique()
 
-        # run backtest 
-        pnl = {}
-        rets = pd.Series(index=dates)
-        for i, d in enumerate(dates):
-            # if i < 200:
-            #     continue
-            if d.year < years.min_year:
-                continue 
-            print(f"Processing {d} ...")
-            train_portfolios, test_portfolios = pd.DataFrame(), pd.DataFrame()
-            for tree_file_path in tqdm(paths.processed_data.iterdir()):
-                if tree_file_path.suffix != '.parquet':
-                    continue
-                if reg not in tree_file_path.name:
-                    continue
+    #     # run backtest 
+    #     pnl = {}
+    #     rets = pd.Series(index=dates)
+    #     for i, d in enumerate(dates):
+    #         # if i < 200:
+    #         #     continue
+    #         if d//10000 < years.min_year:
+    #             continue 
+    #         print(f"Processing {d} ...")
+    #         train_portfolios, test_portfolios = pd.DataFrame(), pd.DataFrame()
+    #         for tree_file_path in tqdm(paths.processed_data.iterdir()):
+    #             if tree_file_path.suffix != '.parquet':
+    #                 continue
+    #             if reg not in tree_file_path.name:
+    #                 continue
                 
-                # feature_combination = tree_file_path.stem
-                # logging.info(f"Reading {feature_combination} ...")
-                # tree_portfolio = pl.read_parquet(paths.processed_data / f"{reg}_{feature_combination}.parquet")
-                tree_portfolio = to_pandas(tree_file_path)
+    #             tree_portfolio = to_pandas(tree_file_path)
                 
-                logging.info('Splitting data')
-                train_val_portfolio = tree_portfolio.loc[tree_portfolio.index.get_level_values('date').intersection(dates[:i])]
-                test_portfolio = tree_portfolio.loc[[d]]
-                best_model, overall_model = prune(train_val_portfolio)
-                train_portfolios = pd.concat([train_portfolios, train_val_portfolio.iloc[:, np.nonzero(overall_model.betas[best_model, :])[0]]], axis=1)
-                test_portfolios = pd.concat([test_portfolios, test_portfolio.iloc[:, np.nonzero(overall_model.betas[best_model, :])[0]]], axis=1)
+    #             logging.info('Splitting data')
+    #             train_val_portfolio = tree_portfolio.loc[tree_portfolio.index.get_level_values('date').intersection(dates[:i])]
+    #             test_portfolio = tree_portfolio.loc[[d]]
+    #             best_model, overall_model = prune(train_val_portfolio)
+    #             train_portfolios = pd.concat([train_portfolios, train_val_portfolio.iloc[:, np.nonzero(overall_model.betas[best_model, :])[0]]], axis=1)
+    #             test_portfolios = pd.concat([test_portfolios, test_portfolio.iloc[:, np.nonzero(overall_model.betas[best_model, :])[0]]], axis=1)
 
-            all_test_portfolios = test_portfolios.loc[:, ~(test_portfolios.T.duplicated() | test_portfolios.columns.duplicated())]
-            all_train_portfolios = train_portfolios.loc[:, ~train_portfolios.columns.duplicated()][all_test_portfolios.columns]
-            final_best_model, final_model = prune(all_train_portfolios)
-            final_sharpes, final_combo_wei = calc_sharpe(all_train_portfolios, final_model)
-            sdf = final_model.predict(all_test_portfolios)
-            rets.loc[d] = sdf[final_best_model].to_numpy()
-        rets.dropna().cumsum().plot()
-        plt.show()
-        rets.dropna().to_csv(paths.output / f'{reg}_ret.csv')
+    #         all_test_portfolios = test_portfolios.loc[:, ~(test_portfolios.T.duplicated() | test_portfolios.columns.duplicated())]
+    #         all_train_portfolios = train_portfolios.loc[:, ~train_portfolios.columns.duplicated()][all_test_portfolios.columns]
+    #         final_best_model, final_model = prune(all_train_portfolios)
+    #         final_sharpes, final_combo_wei = calc_sharpe(all_train_portfolios, final_model)
+    #         sdf = final_model.predict(all_test_portfolios)
+    #         rets.loc[d] = sdf[final_best_model].to_numpy()
+    #     rets.dropna().cumsum().plot()
+    #     plt.show()
+    #     rets.dropna().to_csv(paths.output / f'{reg}_ret.csv')
     # %% 
     sns.set_theme()
     chars = Chars()
     years = Years()
     paths = DataPaths()
-    regions = ['GL', 'US', 'EU', 'UK', 'JP', 'AP', 'EM']
-    # regions = ['GL', ]
+    # regions = ['GL', 'US', 'EU', 'UK', 'JP', 'AP', 'EM']
+    regions = ['EU', ]
     for reg in regions:
         print(f'Processing {reg}')
         features = list(chars.__dict__.values())[:-2]
-        data, _, CHARAS_LIST, _ = read_ei_data(region_=reg, target=Columns.returns_col, ei_factors=features)
+        data, _, CHARAS_LIST, _ = read_ei_data(region_=reg, target='gross_returns', ei_factors=features)
         data.loc[:, 'lme'] = np.log(data[Columns.size_col])
         
         ai_pnl = pd.read_csv(paths.output / f"{reg}_ret.csv").set_index('date')
-        ai_pnl.index = pd.to_datetime(ai_pnl.index, format="%Y-%m-%d")
+        ai_pnl.index = pd.to_datetime(ai_pnl.index, format="%Y%m%d")
         ei_pnl = calc_fac_ret(data[features].mean(axis=1).swaplevel(0, 1), data['gross_returns'].swaplevel(0, 1), q=5, date_col='date', score_weighted=True)
         ei_pnl.index = pd.to_datetime(ei_pnl.index, format="%Y%m%d")
         pnl = pd.concat([ai_pnl, ei_pnl], axis=1).dropna()
         pnl.columns = ['Tree', 'EI']
-        pnl['Combined'] = pnl['EI'] * 0.8 + pnl['Tree'] * 0.2
+        pnl['Combined'] = pnl['EI'] * 0.5 + pnl['Tree'] * 0.5 
         # pnl = pd.concat([pnl, comb_pnl], axis=1)
         pnl.cumsum().plot(title=f'{reg}')
         plt.show()

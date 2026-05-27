@@ -127,6 +127,7 @@ class TreeElastic(BaseEstimator):
         counts = np.where(counts == 0, 1, counts)
         row_means = (betas_tmp * betas_mask).sum(axis=1, keepdims=True) / counts
         self.betas = betas_tmp - row_means * betas_mask
+        self.betas = (self.betas.T / (np.sum(np.abs(self.betas), axis=1) + EPSILON)).T
 
         # This forces the sum of betas being 1
         # self.betas = (self.betas.T / (np.abs(np.sum(self.betas, axis=1)) + EPSILON)).T

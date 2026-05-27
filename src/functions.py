@@ -505,8 +505,8 @@ def _get_weights(alpha, score_weighted=False, q=5):
         else:
             qts = _qcut(alpha, q=q)
             w = np.zeros_like(alpha)
-            w[qts==np.nanmin(qts)] = -1.0 / sum(qts==np.nanmin(qts))
-            w[qts==np.nanmax(qts)] = 1.0 / sum(qts==np.nanmax(qts))
+            w[qts==np.nanmin(qts)] = -0.5 / sum(qts==np.nanmin(qts))
+            w[qts==np.nanmax(qts)] = 0.5 / sum(qts==np.nanmax(qts))
     return w
 
 def _get_weights_by_screen(alpha_factor, screen_factor, score_weighted=True, q=5, date_col='dates'):

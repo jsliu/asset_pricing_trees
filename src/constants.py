@@ -25,7 +25,7 @@ class Columns:
     date_col: str = 'date'
     # size_col: str = 'market_value_gbp'
     size_col: str = 'mkt_cap'
-    permno_col: str = 'permno'
+    id_col: str = 'permno'
     # returns_col: str = 'total_return_1d_gbp'
     returns_col: str = 'excess_returns'
     # returns_col: str = 'X1MFwdReturnLoc'
@@ -167,8 +167,6 @@ class DataPaths:
     rf_factor_file_name: str = 'rf_factor'
     model_dumps: Path = Path('model_dumps_split')
     processed_data: Path = Path('processed_data_split')
-    combo_data: Path = Path('combo')
-    combo_weight: Path = Path('combo_wei')
     model_suffix: str = 'model.pkl'
 
     def merge_tuple(self, input_tuple: tuple[str, str]) -> str:
