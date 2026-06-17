@@ -11,6 +11,7 @@ from sklearn.model_selection import train_test_split
 from src.constants import DataPaths, Parameters
 from src.functions import scale
 from prune_trees import prune, to_pandas
+from stock_portfolio_pl import get_stocks_in_node
 
 
 def plot_sharpe(data):
@@ -87,9 +88,9 @@ if __name__ == '__main__':
     # plt.tight_layout()
     # plt.show()
     all_combo_wei = {}
-    regions = ['GL', 'US', 'UK', 'EU', 'AP', 'JP', 'EM']
-    # regions = ['GL', ]
-    saved = False
+    # regions = ['GL', 'US', 'UK', 'EU', 'AP', 'JP', 'EM']
+    regions = ['GL', ]
+    saved = True
     paths = DataPaths()
     for reg in regions:
         print(f"Processing in {reg}")
@@ -114,7 +115,7 @@ if __name__ == '__main__':
                 all_portfolios = pd.concat([all_portfolios, tree_portfolio[combo_wei.index]], axis=1)
         
             all_portfolios = all_portfolios.loc[:, ~(all_portfolios.T.duplicated() | all_portfolios.columns.duplicated())]
-            # all_portfolios.to_parquet(f"{reg}_all_port.parquet")
+            all_portfolios.to_parquet(f"{reg}_all_port.parquet")
         else:
             all_portfolios = pd.read_parquet(f"{reg}_all_port.parquet")
         # some columns eventhough they have same column name, the values are not identical, but 99% correlated
@@ -122,5 +123,7 @@ if __name__ == '__main__':
         all_sharpes, all_wei = calc_sharpe(all_portfolios, final_model, use_test_data=True)
         all_combo_wei[reg] = scale(all_wei)
         plot_sharpe(all_sharpes)
+
+        
 
 # %%

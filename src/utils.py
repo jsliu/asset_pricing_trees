@@ -8,7 +8,6 @@ import pandas as pd
 import polars as pl
 import numpy as np
 
-import os
 
 
 def rows_to_quantiles(input_df: pd.DataFrame) -> pd.DataFrame:
@@ -385,3 +384,36 @@ def tree_grows_pl(
             )
 
     return out
+
+
+def build_comb_pl(data, merged_df, features):
+
+    # all_features = list({
+    #     f
+    #     for comb, _, _ in best_combos
+    #     for f in comb.split(Columns.col_sep)
+    # })
+
+    ranked_data = (
+        data.lazy()
+        .select([Columns.date_col, Columns.id_col] + features)
+        .with_columns([
+            (
+                (pl.col(f).rank("min").over(Columns.date_col) - 1)
+                / (pl.col(f).is_not_null().sum().over(Columns.date_col) - 1)
+            ).alias(f)
+            for f in features
+        ])
+        .collect()
+    )
+
+    comb_pl = (
+        ranked_data
+        .join(merged_df, on=[Columns.date_col, Columns.id_col], how="inner")
+        .drop_nulls()
+        .with_columns(pl.len().over(Columns.date_col).alias("group_size_check"))
+        .filter(pl.col("group_size_check") > 100)
+        .drop("group_size_check")
+    )
+
+    return comb_pl
