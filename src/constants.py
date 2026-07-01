@@ -10,7 +10,7 @@ import numpy as np
 class Parameters:
     tree_depth: int = 4
     n_splits: int = 2
-    n_chars: int = 3
+    n_chars: int = 2
     mean_shrinkage: ClassVar[np.ndarray] = np.arange(0.1, 1, 0.1)
     ridge_lambda: ClassVar[np.ndarray] = 0.1 ** np.arange(1, 9, 1)
     cv_splits: int = 2
@@ -74,11 +74,11 @@ class Chars:
     # lt_rev: str = 'lt_rev'
     # lrunover: str = 'lturnover'
 
-    val: str = 'val'
-    qual: str = 'qual'
-    trd: str = 'trd'
-    sen: str = 'sen'
-    fcf: str = 'fcf_rank'
+    # val: str = 'val'
+    # qual: str = 'qual'
+    # trd: str = 'trd'
+    # sen: str = 'sen'
+    # fcf: str = 'fcf_rank'
     
     # capital_structure: str = "cap_structure"
     # growth: str = "growth"
@@ -95,16 +95,16 @@ class Chars:
     # stock_trend: str = "trdstock"
     # industry_trend: str = "trdind"
 
-    # book_yield: str = "by"
-    # accrual: str = "accrual_level"
-    # vol: str = "X1MVolDaily"
-    # momemtum: str = "mom_1y1m"
-    # op: str = "Oper_Income_Total_Capital"
-    # turnover: str = "turnover_3m"
-    # reversal: str = "mom_1m"
-    # lt_rev: str = "mom_6m"
-    # inven_turnover: str = "Inven_Turnover" 
-    # illiquid: str = 'X3MILLIQ'
+    book_yield: str = "by"
+    accrual: str = "accrual_level"
+    vol: str = "X1MVolDaily"
+    momemtum: str = "mom_1y1m"
+    op: str = "Oper_Income_Total_Capital"
+    turnover: str = "turnover_3m"
+    reversal: str = "mom_1m"
+    lt_rev: str = "mom_6m"
+    inven_turnover: str = "Inven_Turnover" 
+    illiquid: str = 'X3MILLIQ'
     lme: str = "lme"
     returns: str = 'ret'
 
@@ -165,8 +165,8 @@ class DataPaths:
     sep: str = '_'
     returns_file_name: str = 'ret'
     rf_factor_file_name: str = 'rf_factor'
-    model_dumps: Path = Path('model_dumps_split')
-    processed_data: Path = Path('processed_data_split')
+    model_dumps: Path = Path('model_dumps_split_big_univ')
+    processed_data: Path = Path('processed_data_split_big_univ')
     model_suffix: str = 'model.pkl'
 
     def merge_tuple(self, input_tuple: tuple[str, str]) -> str:

@@ -121,7 +121,7 @@ def readEIfactors(
         ei_factors = factor_data.loc[factor_data['non_inv_trust_mask'].notna(), factor_names]
     # return ei_factors, stock_info.loc[factor_data['non_inv_trust_mask'].notna(), ["gross_returns", "price_ret_stdev20d", "mkt_cap", "country_exposure"]], factor_data
     ei_factors = ei_factors.rename_axis(index={'factset_perm_id': 'permno', 'dates': 'date'})
-    si = stock_info[["gross_returns", "price_ret_stdev20d", "mkt_cap", "country_exposure"]].rename_axis(index={'factset_perm_id': 'permno', 'dates': 'date'})
+    si = stock_info[["gross_returns", "price_ret_stdev20d", "mkt_cap", "country_exposure", "ind", "sector"]].rename_axis(index={'factset_perm_id': 'permno', 'dates': 'date'})
     return ei_factors, si
 
 def extract_trade_data(data, sub_factors, ret_names=[]):

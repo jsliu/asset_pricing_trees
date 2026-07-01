@@ -1,5 +1,4 @@
 # %%
-import logging
 import numpy as np
 import pandas as pd
 import polars as pl
@@ -10,10 +9,11 @@ from scipy.stats import norm
 
 from plot_test_sr import calc_sharpe
 from prune_trees import prune, to_pandas
-from stock_portfolio_pl import get_node_stocks_cached, get_stocks_in_node, compute_node_scores
+from build_trees_pl import prepare_data
+from stock_portfolio_pl import get_node_stocks_cached, compute_node_scores
 from src.constants import DataPaths, Parameters, Columns, Chars, Years
 from src.functions import calc_fac_ret, calc_turnover, calc_decay, calc_factor_exposure, calc_group_exposure, summary
-from src.preprocessing import read_ei_data, cap_weight
+from src.preprocessing import read_ei_data, read_big_universe
 from src.utils import build_comb_pl
 
 
@@ -25,33 +25,23 @@ if __name__ == '__main__':
     chars = Chars()
     years = Years()
     paths = DataPaths()
+    ret_name = 'Universe Returns'
     # regions = ['US', 'EU', 'UK', 'JP', 'AP', 'EM']
-    regions = ['US', ]
+    regions = ['GL', ]
     for reg in regions:
  
         print(f"Loading base characteristics in {reg}")
 
         features = list(chars.__dict__.values())[:-2]
-        data, _, CHARAS_LIST, _ = read_ei_data(region_=reg, target='gross_returns', ei_factors=features)
+        # data, _, CHARAS_LIST, _, _ = read_ei_data(region_=reg, target=ret_name, ei_factors=features)
         # data = read_db_data(region_=reg, features=features, ret_name=Columns.returns_col, data_saved=data_saved)
-        # data = read_big_universe(ret_name='gross_returns', features=features)
-        ret_df = data['gross_returns'] - data[['gross_returns', Columns.size_col]].groupby(Columns.date_col).apply(lambda x: x.prod(axis=1).sum() / x[Columns.size_col].sum())
-        ret_df.name = Columns.returns_col
+        data = read_big_universe(ret_name=ret_name, features=features)
 
-        print(f"Transform base Size feature into quantiles")
-        raw_size_df = data[Columns.size_col].groupby('date').transform(lambda x: cap_weight(x))
-        raw_size_df.name = Columns.size_col
-        lme_df = np.log(data[Columns.size_col])
-        lme_df.name = chars.lme
-
-        print(f"Stack raw Size and Returns variables together")
-        data = pl.from_pandas(pd.concat([data.drop(columns=['gross_returns']), lme_df], axis=1).reset_index())
-        merged_df = pl.from_pandas(pd.concat([raw_size_df, ret_df], axis=1).reset_index())
-
+        data_pl, ret_and_mcap = prepare_data(data, ret_name=ret_name, equal_weighted=False)
         
         comb_pl = build_comb_pl(
-            data=data,
-            merged_df=merged_df,
+            data=data_pl,
+            merged_df=ret_and_mcap,
             features=features+['lme'],
         )
         
@@ -231,26 +221,26 @@ if __name__ == '__main__':
 
 
         stk_score = pl.concat(stock_scores)
-        # stk_score.write_csv(paths.output / f'{reg}_score.csv')
+        stk_score.write_csv(paths.output / f'{reg}_score_big_univ.csv')
         
         rets = rets.dropna()
         rets.cumsum().plot()
         plt.title(f"{reg} cumulative returns")
         plt.show()
 
-        # rets.to_csv(paths.output / f'{reg}_ret.csv')
+        rets.to_csv(paths.output / f'{reg}_ret_big_univ.csv')
     
     # %% 
     sns.set_theme()
     chars = Chars()
     years = Years()
     paths = DataPaths()
-    # regions = ['GL', 'US', 'EU', 'UK', 'JP', 'AP', ]
+    # regions = ['GL', 'US', 'EU', 'UK', 'JP', 'AP', 'EM']
     regions = ['GL', ]
     for reg in regions:
         print(f'Processing {reg}')
         features = list(chars.__dict__.values())[:-2]
-        data, _, CHARAS_LIST, _ = read_ei_data(region_=reg, target='gross_returns', ei_factors=features)
+        data, _, CHARAS_LIST, _, _ = read_ei_data(region_=reg, target='gross_returns', ei_factors=features)
         data.loc[:, 'lme'] = np.log(data[Columns.size_col])
         ai_pnl = pd.read_csv(paths.output / f"{reg}_ret.csv")
         ai_pnl.columns = ['Date', 'Return']
@@ -267,18 +257,27 @@ if __name__ == '__main__':
         plt.show()
         print(summary(pnl, ann_factor=12, sorted=False))
         print(pnl.corr())
-    
-# %%
+    # %%
     sns.set_theme()
     chars = Chars()
     years = Years()
     paths = DataPaths()
-    # regions = ['GL', 'US', 'EU', 'UK', 'JP', 'AP',]
-    regions = ['US', ]
+    factor_weights = {
+        'AP': {'fcf_rank': 0.085, 'qual': 0.365, 'sen': 0.18, 'trd': 0.2, 'val': 0.17},
+        'EM': {'fcf_rank': 0.085, 'qual': 0.385, 'sen': 0.18, 'trd': 0.2, 'val': 0.15},
+        'EU': {'fcf_rank': 0.085, 'qual': 0.365, 'sen': 0.19, 'trd': 0.19, 'val': 0.17},
+        'GL': {'fcf_rank': 0.08, 'qual': 0.37, 'sen': 0.22, 'trd': 0.15, 'val': 0.18},
+        'JP': {'fcf_rank': 0.25, 'qual': 0.25, 'sen': 0.125, 'trd': 0.125, 'val': 0.25},
+        'UK': {'fcf_rank': 0.07, 'qual': 0.36, 'sen': 0.22, 'trd': 0.17, 'val': 0.18},
+        'US': {'fcf_rank': 0.06, 'qual': 0.4, 'sen': 0.18, 'trd': 0.18, 'val': 0.18},
+    }
+    # regions = ['GL', 'US', 'EU', 'UK', 'JP', 'AP', 'EM']
+    regions = ['GL', ]
     for reg in regions:
         print(f'Processing {reg}')
-        features = list(chars.__dict__.values())[:-2]
-        data, _, CHARAS_LIST, _ = read_ei_data(region_=reg, target='gross_returns', ei_factors=features)
+        # features = list(chars.__dict__.values())[:-2]
+        features = ['val', 'qual', 'fcf_rank', 'trd', 'sen']
+        data, _, CHARAS_LIST, _, stock_info = read_ei_data(region_=reg, target='gross_returns', ei_factors=features)
         data.loc[:, 'lme'] = np.log(data[Columns.size_col])
 
         ai_score = pd.read_csv(paths.output / f"{reg}_score.csv").set_index(['date', 'permno'])['norm_score']
@@ -294,26 +293,37 @@ if __name__ == '__main__':
         pnl = pd.concat([ai_pnl, ei_pnl, combined_pnl], axis=1).dropna()
         pnl.index = pd.to_datetime(pnl.index, format="%Y%m%d")
         pnl.columns = ['Tree', 'EI', 'Combined']
-        pnl.cumsum().plot(title=f'{reg}')
+        pnl.cumsum().plot(title=f'{reg}: Performance').legend(loc='upper left', bbox_to_anchor=(1, 1))
         plt.show()
         print(summary(pnl, ann_factor=12, sorted=False))
 
         roll_perf = pnl.rolling(12).sum()
         roll_perf.index = pd.to_datetime(roll_perf.index, format="%Y%m%d")
-        roll_perf.plot(title=f"{reg}")
+        roll_perf.plot(title=f"{reg}: Rolling 1-year")
+        plt.show()
+        
+        roll_perf = pnl.rolling(36).sum()
+        roll_perf.index = pd.to_datetime(roll_perf.index, format="%Y%m%d")
+        roll_perf.plot(title=f"{reg}: Rolling 3-year")
         plt.show()
 
         factor_pnl = calc_fac_ret(combined_score, data['gross_returns'].swaplevel(0, 1), q=5, date_col='date', score_weighted=True)
         factor_pnl.index = pd.to_datetime(factor_pnl.index, format="%Y%m%d")
-        factor_pnl.cumsum().plot(title=f"{reg}")
+        factor_pnl.cumsum().plot(title=f"{reg}: Factor Performance").legend(loc='upper left', bbox_to_anchor=(1, 1))
         plt.show()
         print(summary(factor_pnl, ann_factor=12, sorted=False))
         print(factor_pnl.corr())
 
+        grp_exp = pd.concat([ai_score, stock_info['sector'].swaplevel(0, 1)], axis=1, join='inner').groupby('date').apply(lambda x: calc_group_exposure(x.iloc[:, 0], groups=x.iloc[:, 1]))
+        grp_exp_df = grp_exp.unstack()
+        grp_exp_df.mean().plot(kind='bar', title=f"{reg}: Average Exposure")
+        grp_exp_df.index = pd.to_datetime(grp_exp_df.index, format="%Y%m%d")
+        grp_exp_df.plot(title=f"{reg}: Sector Exposure").legend(loc='upper left', bbox_to_anchor=(1, 1))
+
         factor_turnover = combined_score.apply(lambda x: calc_turnover(x, stock_id='permno', date_col='date'))
         factor_turnover.index = pd.to_datetime(factor_turnover.index, format="%Y%m%d")
         avg_to = factor_turnover.mean()
-        ax = factor_turnover.plot(title=f"{reg}")
+        ax = factor_turnover.plot(title=f"{reg}: Turnover")
         labels = [
             f"{col}: {avg_to[col]*100:.1f}%"
             for col in factor_turnover.columns
@@ -322,13 +332,13 @@ if __name__ == '__main__':
         plt.show()
 
         factor_decay = combined_score.apply(lambda x: calc_decay(x, date_col='date'))
-        factor_decay.plot(title=f"{reg}").legend(loc='upper left', bbox_to_anchor=(1, 1))
+        factor_decay.plot(title=f"{reg}: Decay").legend(loc='upper left', bbox_to_anchor=(1, 1))
         plt.show()
 
         factor_exposure = combined_score.groupby('date').apply(lambda x: x.iloc[:, :-1].apply(lambda y: calc_factor_exposure(x.iloc[:, -1], factor=y)))
         factor_exposure.index = pd.to_datetime(factor_exposure.index, format="%Y%m%d")
         avg_exp = factor_exposure.mean()
-        ax = factor_exposure.plot(title=f"{reg}")
+        ax = factor_exposure.plot(title=f"{reg}: Factor Exposure")
         labels = [
             f"{col}: {avg_exp[col]:.2f}"
             for col in factor_exposure.columns
@@ -346,6 +356,14 @@ if __name__ == '__main__':
             avg_corr = s.mean()
             plt.plot(s, label=f"{cols[i]}-tree: {avg_corr*100:.1f}%")
         plt.legend(loc='upper left', bbox_to_anchor=(1, 1))
-        plt.title(f"{reg}")
+        plt.title(f"{reg}: Correlation")
         plt.show()
+
+        fac_wei = pd.Series(factor_weights[reg])
+        ei_alpha = combined_score.iloc[:,:-1].mean(axis=1)
+        prod_alpha = combined_score.iloc[:, :-1].fillna(0).dot(fac_wei)*0.8 + combined_score.iloc[:, -1].fillna(0)*0.2
+        new_alpha = combined_score.mean(axis=1)
+        alpha = pd.concat([combined_score.iloc[:, -1], ei_alpha, new_alpha, prod_alpha], axis=1)
+        alpha.columns = ['tree', 'ew_ei', 'ew_all', 'prod']
+        alpha.to_csv(f'result/{reg}_all_score.csv')
 # %%

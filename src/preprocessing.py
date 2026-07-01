@@ -215,7 +215,7 @@ def read_ei_data(region_, end_date=None, target='gross_returns', ei_factors=None
     # valid_train = train_no_na.loc[idx[:, vd_idx], :]
     # valid_train = valid_train.fillna(valid_train.groupby('date').mean())
     valid_train = train_no_na
-    return valid_train, test, list(features) + ['mkt_cap'], test_dates
+    return valid_train, test, list(features) + ['mkt_cap'], test_dates, stock_info
 
 
 def calculate_rolling_ir(returns, lookback_period, ann_factor=12):

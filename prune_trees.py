@@ -79,8 +79,8 @@ def prune(tree_portfolio):
 if __name__ == '__main__':
     chars = Chars()
     paths = DataPaths()
-    regions = ['GL', 'US', 'UK', 'EU', 'AP', 'JP', 'EM']
-    # regions = ['GL', ]
+    # regions = ['GL', 'US', 'UK', 'EU', 'AP', 'JP', 'EM']
+    regions = ['GL', ]
     for reg in regions:
         print(f"Pruning tree in {reg}")
         files = list(paths.processed_data.iterdir())
