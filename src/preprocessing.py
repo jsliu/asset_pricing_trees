@@ -245,15 +245,30 @@ def read_db_data(region_, features, ret_name, freq='M', data_saved=True):
     return data[data[ret_name].notna()]
 
 
-def read_big_universe(features, ret_name="X1MFwdReturnLoc"):
-    data = pd.read_csv(r"G:\Quant\Enhanced Index\Research\MATLAB\database\parquet\csv\mtec4.csv",
+def read_big_universe(features, 
+                      features_direction = None,
+                      ret_name="X1MFwdReturnLoc", 
+                      file_name=r"G:\Quant\Enhanced Index\Research\MATLAB\database\parquet\csv\mtec4.csv",
+                      add_groups=False):
+    if features_direction is None:
+        features_direction = np.ones(len(features))
+
+    data = pd.read_csv(file_name,
                        na_values=["NA", "NAN"],
                        keep_default_na=True).set_index(['Period (YYYYMMDD)', 'factset_perm_id'])
-    data = data[features + ['mkt_cap', ret_name]].swaplevel(0, 1)
+    if add_groups:
+        groups = ["sector", "supersector", "ind_grp", "ind", "BINAME","country_exch",	"region"]
+        data = data[features + groups + ['mkt_cap', ret_name]].swaplevel(0, 1)
+        data[groups] = data[groups].astype('category')
+    else:
+        data = data[features + ['mkt_cap', ret_name]].swaplevel(0, 1)
+
     data = data.rename_axis(index = {'Period (YYYYMMDD)': 'date', 'factset_perm_id': 'permno'})
     dates = data.index.levels[1]
     idx = pd.IndexSlice
-    return data.loc[idx[:, dates[:-2]], :]
+    data = data.loc[idx[:, dates[:-2]], :]
+    data.loc[:, features] = data[features].mul(features_direction)
+    return data[~data.index.duplicated()]
 
 def cap_weight(x, threshold=3):
     """
@@ -263,3 +278,16 @@ def cap_weight(x, threshold=3):
     norm_x[norm_x < -threshold] = -threshold
     norm_x[norm_x > threshold] = threshold
     return norm_x / threshold + 1
+
+def read_all_data(target, ei_factors):
+    data1, stock_info1 = [], []
+    data2, stock_info2 = {}, {}
+    for reg2 in  ['GL', 'US', 'UK', 'EU', 'AP', 'JP', 'EM']:
+        data2[reg2], _, features_list, _, stock_info2[reg2] = read_ei_data(region_=reg2, target=target, ei_factors=ei_factors)
+        data1.append(data2[reg2])
+        stock_info1.append(stock_info2[reg2])
+    data = pd.concat(data1)
+    stock_info = pd.concat(stock_info1)
+    data = data.loc[~data.index.duplicated()].sort_index(level='date')
+    stock_info = stock_info.loc[~stock_info.index.duplicated()].sort_index(level='date')
+    return data, features_list, stock_info

@@ -334,33 +334,49 @@ def readAIfactors(
     return out
 
 
-def _regression(X, y, scaled=True):
-    out = np.empty(X.shape[1])
-    out[:] = np.nan
+def _regression(X, y, intercept=True, scaled=True):
     notna_X = X.notna().any().to_numpy()
     notna_y = y.notna().to_numpy()
     if sum(notna_y) > 0:
-        r = y[notna_y]
-        A = X.loc[notna_y, notna_X].fillna(0).to_numpy()
+        A = X.loc[notna_y, notna_X].dropna().fillna(0)
+        r = y.loc[A.index]
+        if intercept:
+            A.insert(0, "intercept", 1.0)
+            out = np.empty(X.shape[1]+1)
+            notna_X = np.insert(notna_X, 0, True)
+            Xcols = X.columns.insert(0, "intercept")
+        else:
+            out = np.empty(X.shape[1])
+            Xcols = X.columns
+        out[:] = np.nan
         if scaled:
             out[notna_X] = np.linalg.inv(A.T @ A) @ A.T @ r
         else:
             out[notna_X] = A.T @ r
     else:
         out = np.nan
-    return pd.Series(out, index=X.columns)
+    return pd.Series(out, index=Xcols)
 
 
-def get_residuals(data, factor_names, return_name="gross_returns", intercept=True, shift=True, **kwargs):
-    data2 = data.copy()
+def get_residuals(data, factor_names, 
+                  return_name="gross_returns", 
+                  date_name="dates",
+                  id_name = 'factset_perm_id', 
+                  intercept=True, 
+                  shift=False, 
+                  **kwargs):
     if intercept:
-        data2.insert(0, "intercept", 1.0)
-        factor_names = ["intercept"] + list(factor_names)
-    resids = data2.groupby("dates", group_keys=False).apply(
-        lambda x: x[return_name] - x[factor_names].fillna(0) @ _regression(x[factor_names], x[return_name], **kwargs)
-    )
+        data 
+        resids = data.groupby(date_name, group_keys=False).apply(
+            lambda x: x[return_name] - pd.concat([pd.Series(1, index=x.index, name="intercept"), x[factor_names]], axis=1).fillna(0) @ _regression(x[factor_names], x[return_name], intercept=intercept, **kwargs)
+        )
+    else:
+        resids = data.groupby(date_name, group_keys=False).apply(
+            lambda x: x[return_name] - x[factor_names].fillna(0) @ _regression(x[factor_names], x[return_name], intercept=intercept, **kwargs)
+        )
+
     if shift:
-        resids = resids.groupby('factset_perm_id', observed=False).shift(1).dropna()
+        resids = resids.groupby(id_name, observed=False).shift(1).dropna()
     else:
         resids = resids.dropna()
     return resids
@@ -477,7 +493,7 @@ def _factor_return(return_, weights, date_col="dates", long=False, short=False):
 
 
 def calc_fac_ret(
-    factor_score, stock_return, q, date_col="dates", long=False, short=False, score_weighted=True, screen_factor=None
+    factor_score, stock_return, q=5, date_col="dates", long=False, short=False, score_weighted=False, screen_factor=None
 ):
     if isinstance(factor_score, pd.Series):
         factor_score = factor_score.to_frame()
@@ -580,7 +596,7 @@ def calc_decay(alpha_factor, date_col='dates', max_lag=12, screen_factor=None):
 
 
 
-def summary(strategy, ann_factor=252, sorted=True):
+def summary(strategy, ann_factor=12, sorted=True):
     ann_ret = strategy.mean() * ann_factor
     ann_std = strategy.std() * np.sqrt(ann_factor)
     ir = ann_ret / ann_std

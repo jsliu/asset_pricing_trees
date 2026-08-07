@@ -9,7 +9,6 @@ import polars as pl
 import numpy as np
 
 
-
 def rows_to_quantiles(input_df: pd.DataFrame) -> pd.DataFrame:
     """
     Each row contains values - convert them to the quantiles.
@@ -116,60 +115,10 @@ def tree_grows(input_df: pd.DataFrame, n_split: int):
     return df
 
 
-def add_portfolio_cols(input_df: pd.DataFrame, feature_sequence: List[str], tree_splits_features: List[str], n_split: int = 2):
-    tree_df = input_df[tree_splits_features].copy()
-    tree_df.columns = [f"{Columns.node_col}{Columns.col_sep}{i}" for i in range(len(tree_splits_features))]
-    
-    # tree_df.loc[:, f"{Columns.node_col}{Columns.col_sep}0"] = 0
-    # print(tree_splits_features)
-    
-    tree_df = recursive_tree_grows(tree_df, n_split=n_split)
-    # tree_df = tree_grows(tree_df, n_split=n_split)
-    
-    input_df = input_df.join(tree_df)
-    feat_agg_func = {f: ['min', 'max'] for f in set(feature_sequence)}
-    features_dict = dict()
-    for i_seq in range(len(tree_splits_features)+1):
-        port_col = f"{Columns.port_col}{Columns.col_sep}{i_seq}"
-        input_df[port_col] = 1
-        for k_subseq in range(i_seq):
-            input_df.loc[:, port_col] = (input_df[port_col] +
-                                         (tree_df[f"{Columns.node_col}{Columns.col_sep}{k_subseq}"]
-                                          * (n_split ** (i_seq-k_subseq - 1))))
-        min_max_feature_df = input_df.groupby(port_col).agg(feat_agg_func)
-        min_max_feature_df.columns = list(map(Columns.col_sep.join, min_max_feature_df.columns.values))
-        features_dict[port_col] = pd.concat([
-            input_df.groupby(port_col, group_keys=False).apply(lambda sub_df: get_ret_val(sub_df), include_groups=False).to_frame(Columns.w_returns_col),
-            min_max_feature_df], axis=1)
-    features_df = pd.concat(features_dict, axis=0)
-    features_df.columns.name = Columns.features_col
-    features_df.index.names = [Columns.port_col, Columns.node_col]
-    features_df = features_df.T
-    return features_df
-
-
 def get_ret_val(input_df: pd.DataFrame):
     return np.dot(
         input_df[Columns.returns_col].values,
         input_df[Columns.size_col].values) / input_df[Columns.size_col].sum()
-
-
-# def tree_portfolio(
-#         comb_df: pd.DataFrame, 
-#         feature_sequence: List[str], 
-#         n_split: int = 2, 
-#         tree_depth: int = 4):
-#     all_trees_portfolio_dict = dict()
-#     for char_product in tqdm(product(feature_sequence, repeat=tree_depth)):
-#         # Create grouping by months
-#         one_tree = comb_df.groupby(Columns.date_col).apply(
-#             lambda x: add_portfolio_cols(x, feature_sequence, list(char_product), n_split))
-#         all_trees_portfolio_dict[Columns.col_sep.join(char_product)] = one_tree
-
-#     # Here groupind date/month/port/node and each feature value
-#     # In R, for each feature there is a separate matrix with months as Rows, and (port + node) as columns
-#     # in the same order as in our data
-#     return all_trees_portfolio_dict
 
 
 def tree_portfolio(
@@ -276,65 +225,6 @@ def build_tree_portfolio(comb_pl: pl.DataFrame, feature_sequence: List[str], n_s
         ], how='vertical')
     return portfolio
 
-
-# def add_portfolio_cols_pl(
-#     df: pl.DataFrame,
-#     feature_sequence,
-#     tree_splits_features,
-#     n_split: int = 2,
-# ) -> pl.DataFrame:
-
-#     # --- 1. Build tree_df ---
-#     tree_df = (
-#         df.select(tree_splits_features)
-#         .rename({
-#             f: f"{Columns.node_col}{Columns.col_sep}{i}"
-#             for i, f in enumerate(tree_splits_features)
-#         })
-#     )
-
-#     tree_df = tree_grows_pl(tree_df, n_split=n_split)
-
-#     df = df.with_columns(tree_df)
-
-#     # --- 2. Prepare feature aggregations ---
-#     agg_exprs = []
-#     for f in set(feature_sequence):
-#         agg_exprs.append(pl.col(f).min().alias(f"{f}{Columns.col_sep}min"))
-#         agg_exprs.append(pl.col(f).max().alias(f"{f}{Columns.col_sep}max"))
-
-#     result_frames = []
-
-#     # --- 3. Loop over portfolio depth ---
-#     for i_seq in range(len(tree_splits_features) + 1):
-
-#         port_col = f"{Columns.port_col}{Columns.col_sep}{i_seq}"
-
-#         # Build portfolio id vectorially
-#         expr = pl.lit(1)
-#         for k_subseq in range(i_seq):
-#             node_col = f"{Columns.node_col}{Columns.col_sep}{k_subseq}"
-#             expr = expr + pl.col(node_col) * (n_split ** (i_seq - k_subseq - 1))
-
-#         df_i = df.with_columns(expr.alias(port_col))
-
-#         # --- 4. Aggregations (Polars-native) ---
-#         grouped = (
-#             df_i
-#             .group_by(port_col)
-#             .agg([
-#                 (
-#                     (pl.col(Columns.returns_col) * pl.col(Columns.size_col)).sum()
-#                     / pl.col(Columns.size_col).sum()
-#                 ).alias(Columns.w_returns_col),
-#                 *agg_exprs,
-#             ])
-#         )
-
-#         result_frames.append(grouped)
-
-#    # --- 5. Combine results ---
-#   return pl.concat(result_frames)
 
 def quantile_bucket(expr: pl.Expr, n_split: int, groups) -> pl.Expr:
     return(

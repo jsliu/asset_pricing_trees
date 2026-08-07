@@ -67,13 +67,15 @@ def calc_sharpe(tree_portfolio, ap_tree_model, use_test_data=True):
     max_idx = df_plot.index[mask]
     if len(max_idx) > 1:
         best_combo = tree_portfolio.columns[np.unique(np.nonzero(ap_tree_model.betas[max_idx, :][1]))]
+        best_port = tree_portfolio.iloc[:, np.unique(np.nonzero(ap_tree_model.betas[max_idx, :][1]))]
         sdf_wei = ap_tree_model.betas[max_idx, :][1]
     else:
         best_combo = tree_portfolio.columns[np.nonzero(ap_tree_model.betas[max_idx, :])[1]]
+        best_port = tree_portfolio.iloc[:, np.nonzero(ap_tree_model.betas[max_idx, :])[1]]
         sdf_wei = ap_tree_model.betas[max_idx, :]
     w = sdf_wei[np.nonzero(sdf_wei)]
     combo_wei = pd.Series(w, index=best_combo, name='weight')
-    return df_plot, combo_wei
+    return df_plot, combo_wei, best_port
 
 # %%
 if __name__ == '__main__':
@@ -88,9 +90,10 @@ if __name__ == '__main__':
     # plt.tight_layout()
     # plt.show()
     all_combo_wei = {}
+    suffix = "sub_fac"
     # regions = ['GL', 'US', 'UK', 'EU', 'AP', 'JP', 'EM']
     regions = ['GL', ]
-    saved = True
+    saved = False
     paths = DataPaths()
     for reg in regions:
         print(f"Processing in {reg}")
@@ -110,17 +113,17 @@ if __name__ == '__main__':
                 with open(paths.model_dumps / model_output_name, 'rb') as f:
                     ap_tree_model = pickle.load(f)
                 tree_portfolio = to_pandas(tree_file_path)
-                sharpes, combo_wei = calc_sharpe(tree_portfolio, ap_tree_model, use_test_data=False)
+                sharpes, combo_wei, best_port = calc_sharpe(tree_portfolio, ap_tree_model, use_test_data=False)
                 all_combos = pd.concat([all_combos, combo_wei])
                 all_portfolios = pd.concat([all_portfolios, tree_portfolio[combo_wei.index]], axis=1)
         
             all_portfolios = all_portfolios.loc[:, ~(all_portfolios.T.duplicated() | all_portfolios.columns.duplicated())]
-            all_portfolios.to_parquet(f"{reg}_all_port.parquet")
+            all_portfolios.to_parquet(rf"result\{reg}_all_port_{suffix}.parquet")
         else:
-            all_portfolios = pd.read_parquet(f"{reg}_all_port.parquet")
+            all_portfolios = pd.read_parquet(rf"result\{reg}_all_port_{suffix}.parquet")
         # some columns eventhough they have same column name, the values are not identical, but 99% correlated
         _, final_model = prune(all_portfolios)
-        all_sharpes, all_wei = calc_sharpe(all_portfolios, final_model, use_test_data=True)
+        all_sharpes, all_wei, best_port = calc_sharpe(all_portfolios, final_model, use_test_data=True)
         all_combo_wei[reg] = scale(all_wei)
         plot_sharpe(all_sharpes)
 

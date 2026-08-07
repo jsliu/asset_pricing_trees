@@ -9,19 +9,27 @@ from tqdm import tqdm
 
 from src.utils import build_tree_portfolio, build_comb_pl
 from src.constants import Columns, Chars, DataPaths, Parameters
-from src.preprocessing import cap_weight, read_ei_data, read_db_data, read_big_universe
+from src.functions import get_residuals
+from src.preprocessing import cap_weight, read_ei_data, read_db_data, read_big_universe, read_all_data
 
-def prepare_data(data, ret_name, equal_weighted=True):
+
+
+
+def prepare_data(data, ret_name, factors=None, equal_weighted=True):
     chars = Chars()
     print(f"Transform base Size feature into quantiles")
     # wei_df = pd.Series(1, index=data.index) if equal_weighted else data[Columns.size_col].groupby('date').transform(lambda x: cap_weight(x))
     wei_df = pd.Series(1, index=data.index) if equal_weighted else data[Columns.size_col]
     wei_df.name = Columns.size_col
-    lme_df = np.log(data[Columns.size_col])
+    lme_df = -np.log(data[Columns.size_col])
     lme_df.name = chars.lme
     ret_df = data[ret_name] - pd.concat([data[ret_name], wei_df], axis=1).groupby(Columns.date_col).apply(lambda x: x.prod(axis=1).sum() / x[Columns.size_col].sum())
-    ret_df.name = Columns.returns_col
 
+    if factors is not None:
+        regress_data = data[factors].merge(ret_df, right_index=True, left_index=True)
+        ret_df = get_residuals(regress_data, factor_names=factors, return_name=Columns.returns_col, date_name=Columns.date_col, id_name=Columns.id_col)
+
+    ret_df.name = Columns.returns_col
     print(f"Stack raw Size and Returns variables together")
     data_pl = pl.from_pandas(pd.concat([data.drop(columns=[ret_name]), lme_df], axis=1).reset_index())
     merged_df = pl.from_pandas(pd.concat([wei_df, ret_df], axis=1).reset_index())
@@ -110,8 +118,9 @@ if __name__ == '__main__':
     chars = Chars()
     # paths = DataPaths()
 
-    data_saved = False
-    ret_name = "Universe Returns"
+    # data_saved = False
+    # ret_name = "Universe Returns"
+    ret_name = "gross_returns"
     # regions = ['GL', 'US', 'UK', 'EU', 'AP', 'JP', 'EM']
     regions = ['GL', ]
     for reg in regions:
@@ -119,12 +128,23 @@ if __name__ == '__main__':
         print(f"Loading base characteristics in {reg}")
 
         features = list(chars.__dict__.values())[:-2]
-        # data, _, CHARAS_LIST, _, _ = read_ei_data(region_=reg, target=ret_name, ei_factors=features)
+        if reg == "ALL":
+            data, CHARAS_LIST, _ = read_all_data(target=ret_name, ei_factors=features)
+            data1 = []
+            data2 = {}
+            for reg2 in  ['GL', 'US', 'UK', 'EU', 'AP', 'JP', 'EM']:
+                data2[reg2], _, CHARAS_LIST, _, _ = read_ei_data(region_=reg2, target=ret_name, ei_factors=features)
+                data1.append(data2[reg2])
+            data = pd.concat(data1)
+            data = data.loc[~data.index.duplicated()]
+        else:
+            data, _, CHARAS_LIST, _, _ = read_ei_data(region_=reg, target=ret_name, ei_factors=features)
         # data = read_db_data(region_=reg, features=features, ret_name=ret_name, data_saved=data_saved)
-        data = read_big_universe(ret_name=ret_name, features=features)
+        # data = read_big_universe(ret_name=ret_name, features=features, features_direction=[1, -1, -1, 1, 1, -1, -1, -1, 1, -1])
 
-        data_pl, ret_and_mcap = prepare_data(data, ret_name=ret_name, equal_weighted=False)
+        data_pl, ret_and_mcap = prepare_data(data, ret_name=ret_name, factors=None, equal_weighted=False)
         logging.info(f"Start building the trees in {reg} given the combinations of features")
         print(f"Start building the trees in {reg} given the combinations of features")
+        # if alwasy use lme as a feature, exlucde it firslty
         run_pipeline(reg, data_pl, ret_and_mcap, exclude_chars=[chars.returns, chars.lme])
 # %%
