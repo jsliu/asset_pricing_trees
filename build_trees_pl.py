@@ -24,12 +24,12 @@ def prepare_data(data, ret_name, factors=None, equal_weighted=True):
     lme_df = -np.log(data[Columns.size_col])
     lme_df.name = chars.lme
     ret_df = data[ret_name] - pd.concat([data[ret_name], wei_df], axis=1).groupby(Columns.date_col).apply(lambda x: x.prod(axis=1).sum() / x[Columns.size_col].sum())
+    ret_df.name = Columns.returns_col
 
     if factors is not None:
         regress_data = data[factors].merge(ret_df, right_index=True, left_index=True)
         ret_df = get_residuals(regress_data, factor_names=factors, return_name=Columns.returns_col, date_name=Columns.date_col, id_name=Columns.id_col)
 
-    ret_df.name = Columns.returns_col
     print(f"Stack raw Size and Returns variables together")
     data_pl = pl.from_pandas(pd.concat([data.drop(columns=[ret_name]), lme_df], axis=1).reset_index())
     merged_df = pl.from_pandas(pd.concat([wei_df, ret_df], axis=1).reset_index())
@@ -121,8 +121,8 @@ if __name__ == '__main__':
     # data_saved = False
     # ret_name = "Universe Returns"
     ret_name = "gross_returns"
-    # regions = ['GL', 'US', 'UK', 'EU', 'AP', 'JP', 'EM']
-    regions = ['GL', ]
+    regions = ['GL', 'US', 'UK', 'EU', 'AP', 'JP', 'EM']
+    # regions = ['GL', ]
     for reg in regions:
         logging.info(f"Loading base characteristics")
         print(f"Loading base characteristics in {reg}")

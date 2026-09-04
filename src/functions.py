@@ -379,6 +379,7 @@ def get_residuals(data, factor_names,
         resids = resids.groupby(id_name, observed=False).shift(1).dropna()
     else:
         resids = resids.dropna()
+    resids.name = return_name
     return resids
 
 

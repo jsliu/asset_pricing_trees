@@ -130,8 +130,8 @@ if __name__ == '__main__':
     paths = DataPaths()
     ret_name = "gross_returns"
     # ret_name = "Universe Returns"
-    # regions = ['GL', 'US', 'UK', 'EU', 'AP', 'JP', 'EM']
-    regions = ['ALL', ]
+    regions = ['GL', 'US', 'UK', 'EU', 'AP', 'JP', 'EM']
+    # regions = ['GL', ]
     for reg in regions:
         print(f"Read EI factors in {reg}")
         features = list(chars.__dict__.values())[:-2]

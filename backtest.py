@@ -33,11 +33,11 @@ if __name__ == '__main__':
     chars = Chars()
     years = Years()
     paths = DataPaths()
-    suffix = 'resid2'
+    suffix = 'sub_fac2'
     # ret_name = 'Universe Returns'
     ret_name = 'gross_returns'
-    # regions = ['GL', 'US', 'EU', 'UK', 'JP', 'AP', 'EM']
-    regions = ['GL', ]
+    regions = ['GL', 'US', 'EU', 'UK', 'JP', 'AP', 'EM']
+    # regions = ['GL', ]
     for reg in regions:
  
         print(f"Loading base characteristics in {reg}")
@@ -252,10 +252,10 @@ if __name__ == '__main__':
     chars = Chars()
     years = Years()
     paths = DataPaths()
-    suffix = 'resid2'
+    suffix = 'sub_fac2'
     ret_name = 'gross_returns'
     # regions = ['GL', 'US', 'EU', 'UK', 'JP', 'AP', 'EM']
-    regions = ['ALL', ]
+    regions = ['GL', ]
     for reg in regions:
         print(f'Processing {reg}')
         # features = list(chars.__dict__.values())[:-2]
@@ -285,7 +285,7 @@ if __name__ == '__main__':
     chars = Chars()
     years = Years()
     paths = DataPaths()
-    suffix = 'resid2'
+    suffix = 'sub_fac2'
     ret_name = 'gross_returns'
     factor_weights = {
         'ALL': {'fcf_rank': 0.08, 'qual': 0.37, 'sen': 0.22, 'trd': 0.15, 'val': 0.18},
@@ -298,7 +298,7 @@ if __name__ == '__main__':
         'US': {'fcf_rank': 0.06, 'qual': 0.4, 'sen': 0.18, 'trd': 0.18, 'val': 0.18},
     }
     # regions = ['GL', 'US', 'EU', 'UK', 'JP', 'AP', 'EM']
-    regions = ['ALL', ]
+    regions = ['GL', ]
     for reg in regions:
         print(f'Processing {reg}')
         features = list(chars.__dict__.values())[:-2]

@@ -76,8 +76,8 @@ class Chars:
 
     val: str = 'val'
     qual: str = 'qual'
-    trd: str = 'trd'
-    sen: str = 'sen'
+    # trd: str = 'trd'
+    # sen: str = 'sen'
     fcf: str = 'fcf_rank'
     
     # capital_structure: str = "cap_structure"
@@ -90,10 +90,10 @@ class Chars:
     # forward_earnings_yield: str = "fy1_ey_rank"
     # ebidta_to_ev: str = "ee_no_fin_rank"
     # free_cash_flow: str = "fcf_rank"
-    # stock_sentiment: str = "senstock"
-    # industry_sentiment: str = "senind"
-    # stock_trend: str = "trdstock"
-    # industry_trend: str = "trdind"
+    stock_sentiment: str = "senstock"
+    industry_sentiment: str = "senind"
+    stock_trend: str = "trdstock"
+    industry_trend: str = "trdind"
 
     # book_yield: str = "by"
     # accrual: str = "accrual_level"
@@ -165,8 +165,8 @@ class DataPaths:
     sep: str = '_'
     returns_file_name: str = 'ret'
     rf_factor_file_name: str = 'rf_factor'
-    model_dumps: Path = Path('model_dumps_split')
-    processed_data: Path = Path('processed_data_split')
+    model_dumps: Path = Path('model_dumps_split_sub_factor2')
+    processed_data: Path = Path('processed_data_split_sub_factor2')
     model_suffix: str = 'model.pkl'
 
     def merge_tuple(self, input_tuple: tuple[str, str]) -> str:
