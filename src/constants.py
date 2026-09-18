@@ -74,22 +74,22 @@ class Chars:
     # lt_rev: str = 'lt_rev'
     # lrunover: str = 'lturnover'
 
-    val: str = 'val'
-    qual: str = 'qual'
+    # val: str = 'val'
+    # qual: str = 'qual'
     # trd: str = 'trd'
     # sen: str = 'sen'
-    fcf: str = 'fcf_rank'
+    # fcf: str = 'fcf_rank'
     
-    # capital_structure: str = "cap_structure"
-    # growth: str = "growth"
-    # profitability: str = "profitability"
-    # accrual: str = "accrual"
-    # investment: str = "investment"
-    # dividend_yield: str = "dy_rank"
-    # book_yield: str = "by_rank"
-    # forward_earnings_yield: str = "fy1_ey_rank"
-    # ebidta_to_ev: str = "ee_no_fin_rank"
-    # free_cash_flow: str = "fcf_rank"
+    capital_structure: str = "cap_structure"
+    growth: str = "growth"
+    profitability: str = "profitability"
+    accrual: str = "accrual"
+    investment: str = "investment"
+    dividend_yield: str = "dy_rank"
+    book_yield: str = "by_rank"
+    forward_earnings_yield: str = "fy1_ey_rank"
+    ebidta_to_ev: str = "ee_no_fin_rank"
+    free_cash_flow: str = "fcf_rank"
     stock_sentiment: str = "senstock"
     industry_sentiment: str = "senind"
     stock_trend: str = "trdstock"
@@ -165,8 +165,8 @@ class DataPaths:
     sep: str = '_'
     returns_file_name: str = 'ret'
     rf_factor_file_name: str = 'rf_factor'
-    model_dumps: Path = Path('model_dumps_split_sub_factor2')
-    processed_data: Path = Path('processed_data_split_sub_factor2')
+    model_dumps: Path = Path('model_dumps_split_sub_factor')
+    processed_data: Path = Path('processed_data_split_sub_factor')
     model_suffix: str = 'model.pkl'
 
     def merge_tuple(self, input_tuple: tuple[str, str]) -> str:

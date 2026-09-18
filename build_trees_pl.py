@@ -121,8 +121,8 @@ if __name__ == '__main__':
     # data_saved = False
     # ret_name = "Universe Returns"
     ret_name = "gross_returns"
-    regions = ['GL', 'US', 'UK', 'EU', 'AP', 'JP', 'EM']
-    # regions = ['GL', ]
+    # regions = ['US', 'UK', 'EU', 'AP', 'JP', 'EM']
+    regions = ['US', ]
     for reg in regions:
         logging.info(f"Loading base characteristics")
         print(f"Loading base characteristics in {reg}")

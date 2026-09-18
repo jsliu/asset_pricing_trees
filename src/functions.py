@@ -692,3 +692,51 @@ def read_from_db(factor_names, region_, from_date, to_date):
     duplicated = data.index.duplicated(keep='first')
     data = data[~duplicated]
     return data, fund, curr
+
+import pandas as pd
+
+def grouped_exposure(
+    df,
+    value_col=0,
+    group_col=1,
+    group_name='sector',
+    level='date',
+    name='exposure'
+    
+):
+    """
+    Apply calc_group_exposure by date and always return
+    a MultiIndex DataFrame indexed by (date, group).
+
+    Parameters
+    ----------
+    df : DataFrame
+    value_col : int or str
+        Column passed as first argument to calc_group_exposure.
+    group_col : int or str
+        Column containing groups.
+    level : str
+        Index level used for grouping.
+    name : str
+        Output column name.
+
+    Returns
+    -------
+    DataFrame
+        MultiIndex DataFrame with index (date, group).
+    """
+    res = pd.concat(
+        {
+            dt: calc_group_exposure(
+                grp[value_col] if isinstance(value_col, str) else grp.iloc[:, value_col],
+                groups=grp[group_col] if isinstance(group_col, str) else grp.iloc[:, group_col],
+            )
+            for dt, grp in df.groupby(level=level)
+        }
+    )
+
+    if isinstance(res, pd.Series):
+        res = res.to_frame(name)
+
+    res.index.names = [level, group_name]
+    return res
