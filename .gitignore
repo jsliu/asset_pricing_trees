@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.pyc
+
+# OS / editor
+.DS_Store
+.vscode/
+
+# data and generated outputs
+characteristics/
+processed_data/
+model_dumps/
+result/
+
+# papers
+paper/
+*.pdf
