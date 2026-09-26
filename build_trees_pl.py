@@ -10,7 +10,7 @@ from tqdm import tqdm
 from src.utils import build_tree_portfolio, build_comb_pl
 from src.constants import Columns, Chars, DataPaths, Parameters
 from src.functions import get_residuals
-from src.preprocessing import cap_weight, read_ei_data, read_db_data, read_big_universe, read_all_data
+from src.preprocessing import cap_weight, read_ei_data, read_db_data, read_big_universe, read_all_data, read_char_data
 
 
 
@@ -120,9 +120,11 @@ if __name__ == '__main__':
 
     # data_saved = False
     # ret_name = "Universe Returns"
-    ret_name = "gross_returns"
+    # ret_name = "gross_returns"
+    ret_name = "ret"
     # regions = ['US', 'UK', 'EU', 'AP', 'JP', 'EM']
-    regions = ['US', ]
+    # regions = ['US', ]
+    regions = ['full', ]
     for reg in regions:
         logging.info(f"Loading base characteristics")
         print(f"Loading base characteristics in {reg}")
@@ -137,12 +139,14 @@ if __name__ == '__main__':
                 data1.append(data2[reg2])
             data = pd.concat(data1)
             data = data.loc[~data.index.duplicated()]
+        elif reg in ("full", "largecap", "largecap001"):
+            data = read_char_data(features, universe=None if reg == "full" else reg, ret_name=ret_name)
         else:
             data, _, CHARAS_LIST, _, _ = read_ei_data(region_=reg, target=ret_name, ei_factors=features)
         # data = read_db_data(region_=reg, features=features, ret_name=ret_name, data_saved=data_saved)
         # data = read_big_universe(ret_name=ret_name, features=features, features_direction=[1, -1, -1, 1, 1, -1, -1, -1, 1, -1])
 
-        data_pl, ret_and_mcap = prepare_data(data, ret_name=ret_name, factors=None, equal_weighted=False)
+        data_pl, ret_and_mcap = prepare_data(data, ret_name=ret_name, factors=None, equal_weighted=True)
         logging.info(f"Start building the trees in {reg} given the combinations of features")
         print(f"Start building the trees in {reg} given the combinations of features")
         # if alwasy use lme as a feature, exlucde it firslty

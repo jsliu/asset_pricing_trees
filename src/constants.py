@@ -17,7 +17,8 @@ class Parameters:
     k_min: int = 5
     k_max: int = 50
     # test_size: int = 826
-    test_size: int = 36
+    # test_size: int = 36
+    test_size: int = 120
 
 
 @dataclass(frozen=True)
@@ -26,8 +27,9 @@ class Columns:
     # size_col: str = 'market_value_gbp'
     size_col: str = 'mkt_cap'
     id_col: str = 'permno'
+    returns_col: str = 'ret'
     # returns_col: str = 'total_return_1d_gbp'
-    returns_col: str = 'excess_returns'
+    # returns_col: str = 'excess_returns'
     # returns_col: str = 'X1MFwdReturnLoc'
     w_returns_col: str = 'weighted_ret'
     col_sep: str = '/'
@@ -39,8 +41,8 @@ class Columns:
 
 @dataclass(init=False)
 class Years:
-    min_year: int = 2006
-    max_year: int = 2026
+    min_year: int = 1963
+    max_year: int = 2016
     __sort_index: int = 0
 
     def get_month_number(self, year: int, month: int = 0):
@@ -64,15 +66,15 @@ class Years:
 
 @dataclass(frozen=True, init=True)
 class Chars:
-    # ac: str = 'ac'
-    # beme: str = 'beme'
-    # idiovol: str = 'idiovol'
-    # r12_2: str = 'r12_2'
-    # op: str = 'op'
-    # investment: str = 'investment'
-    # st_rev: str = 'st_rev'
-    # lt_rev: str = 'lt_rev'
-    # lrunover: str = 'lturnover'
+    ac: str = 'ac'
+    beme: str = 'beme'
+    idiovol: str = 'idiovol'
+    r12_2: str = 'r12_2'
+    op: str = 'op'
+    investment: str = 'investment'
+    st_rev: str = 'st_rev'
+    lt_rev: str = 'lt_rev'
+    lrunover: str = 'lturnover'
 
     # val: str = 'val'
     # qual: str = 'qual'
@@ -80,20 +82,20 @@ class Chars:
     # sen: str = 'sen'
     # fcf: str = 'fcf_rank'
     
-    capital_structure: str = "cap_structure"
-    growth: str = "growth"
-    profitability: str = "profitability"
-    accrual: str = "accrual"
-    investment: str = "investment"
-    dividend_yield: str = "dy_rank"
-    book_yield: str = "by_rank"
-    forward_earnings_yield: str = "fy1_ey_rank"
-    ebidta_to_ev: str = "ee_no_fin_rank"
-    free_cash_flow: str = "fcf_rank"
-    stock_sentiment: str = "senstock"
-    industry_sentiment: str = "senind"
-    stock_trend: str = "trdstock"
-    industry_trend: str = "trdind"
+    # capital_structure: str = "cap_structure"
+    # growth: str = "growth"
+    # profitability: str = "profitability"
+    # accrual: str = "accrual"
+    # investment: str = "investment"
+    # dividend_yield: str = "dy_rank"
+    # book_yield: str = "by_rank"
+    # forward_earnings_yield: str = "fy1_ey_rank"
+    # ebidta_to_ev: str = "ee_no_fin_rank"
+    # free_cash_flow: str = "fcf_rank"
+    # stock_sentiment: str = "senstock"
+    # industry_sentiment: str = "senind"
+    # stock_trend: str = "trdstock"
+    # industry_trend: str = "trdind"
 
     # book_yield: str = "by"
     # accrual: str = "accrual_level"
@@ -165,8 +167,8 @@ class DataPaths:
     sep: str = '_'
     returns_file_name: str = 'ret'
     rf_factor_file_name: str = 'rf_factor'
-    model_dumps: Path = Path('model_dumps_split_sub_factor')
-    processed_data: Path = Path('processed_data_split_sub_factor')
+    model_dumps: Path = Path('model_dumps')
+    processed_data: Path = Path('processed_data')
     model_suffix: str = 'model.pkl'
 
     def merge_tuple(self, input_tuple: tuple[str, str]) -> str:

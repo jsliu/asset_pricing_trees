@@ -128,22 +128,55 @@ def get_stocks_in_node(
 
     df = df.with_columns(expr.alias("target_port"))
 
+    # rank of each split characteristic inside its parent node (the groups the tree splits on),
+    # same convention as quantile_bucket: rank / (count + 1)
+    df = df.with_columns([
+        (
+            pl.col(feature_seq[k]).rank("average").over(groups) / (pl.len().over(groups) + 1)
+        ).alias(f"parent_rank{Columns.col_sep}{k+1}")
+        for k in range(depth)
+        for groups in [[Columns.date_col] + [f"{Columns.node_col}{Columns.col_sep}{j+1}" for j in range(k)]]
+    ])
+
     # --------------------------------------------------
     # 5. Filter target node
     # --------------------------------------------------
     df_node = df.filter(pl.col("target_port") == node_id)
 
-    # return result
+    # return result (size is kept for value weighting within the node)
     return (
-        df_node.select([Columns.id_col, Columns.date_col] + used_feature)
+        df_node.select(
+            [Columns.id_col, Columns.date_col, Columns.size_col] + used_feature
+            + [f"parent_rank{Columns.col_sep}{k+1}" for k in range(depth)]
+        )
     )
+
+
+def node_buckets(node_id: int, depth: int, n_split: int) -> list:
+    """
+    Bucket (0 = lowest) the node falls in at each split, first split first.
+    Inverts the portfolio id formula: node_id = 1 + sum_k bucket_k * n_split ** (depth - k - 1).
+    """
+    buckets, rest = [], node_id - 1
+    for _ in range(depth):
+        buckets.append(rest % n_split)
+        rest //= n_split
+    return buckets[::-1]
 
 
 def compute_node_scores(
     df_node: pl.DataFrame,
     tree_key: str,
     port_col: str,
+    node_id: int = None,
+    n_split: int = 2,
 ) -> pl.DataFrame:
+    """
+    factor_score: geometric mean of the stock's market-wide characteristic ranks along the node's path.
+    oriented_score (when node_id is given): geometric mean of the stock's ranks inside each parent node
+    (from get_stocks_in_node), oriented to the side of the split the node is on (rank for the top bucket,
+    1 - rank for the bottom one), so it measures how firmly the stock sits inside the node.
+    """
 
     id_col = Columns.id_col
 
@@ -166,6 +199,20 @@ def compute_node_scores(
     df_node = df_node.with_columns(
         score_expr.pow(1/len(used_seq)).alias("factor_score")
     )
+
+    # --------------------------------------------------
+    # 3. direction-aware score
+    # --------------------------------------------------
+    if node_id is not None:
+        oriented_expr = pl.lit(1.0)
+        for k, bucket in enumerate(node_buckets(node_id, depth, n_split)):
+            position = bucket / (n_split - 1)   # 0 = bottom bucket, 1 = top bucket
+            parent_rank = pl.col(f"parent_rank{Columns.col_sep}{k+1}")
+            oriented_expr = oriented_expr * (1 - (parent_rank - position).abs())
+
+        df_node = df_node.with_columns(
+            oriented_expr.pow(1/len(used_seq)).alias("oriented_score")
+        )
 
     return df_node
 

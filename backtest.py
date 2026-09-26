@@ -6,15 +6,17 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 import statsmodels.api as sm
 from tqdm import tqdm
-from scipy.stats import norm, ttest_rel
+from joblib import Parallel, delayed
+from scipy.stats import norm
+from AlphaWorkshop.src.main.python.alphaworkshop.functions import rank_normalise
 
 from plot_test_sr import calc_sharpe
-from prune_trees import prune, to_pandas, residualize_portfolios
+from prune_trees import prune, to_pandas, factor_betas, residualize_portfolios
 from build_trees_pl import prepare_data
-from stock_portfolio_pl import get_node_stocks_cached, compute_node_scores
+from stock_portfolio_pl import get_stocks_in_node, compute_node_scores
 from src.constants import DataPaths, Parameters, Columns, Chars, Years
-from src.functions import calc_fac_ret, calc_turnover, calc_decay, calc_factor_exposure, grouped_exposure, summary, get_residuals
-from src.preprocessing import read_ei_data, read_big_universe, read_all_data
+from src.functions import calc_fac_ret
+from src.preprocessing import read_ei_data, read_all_data, read_char_data
 from src.utils import build_comb_pl
 
 
@@ -31,132 +33,255 @@ def r_squared(X, y):
     res = sm.OLS(y, X).fit()
     return res.rsquared_adj
 
+# tree_portfolio's min_node_size (src/utils.py): smaller nodes get no portfolio return
+MIN_NODE_SIZE = 50
+
+def _select_portfolios(train_val_portfolio):
+    """Prune one tree and return the column positions of its selected portfolios."""
+    best_model, overall_model = prune(train_val_portfolio, n_jobs=1)
+    return np.nonzero(overall_model.betas[best_model, :])[0]
+
+def _residual_returns(tree, rows):
+    """Residual returns of the tree's `rows`, using the factor betas estimated at its last refit."""
+    return residualize_portfolios(tree["df"].iloc[rows], tree["factors"].iloc[rows], betas=tree["betas"])
+
+def _market_adjusted_returns(trees, d, columns):
+    """Date d returns of the given portfolios before factor residualisation (stock returns net of the market)."""
+    ret = pd.concat([tree["df"].iloc[slice(*tree["date_bounds"][d])] for tree in trees], axis=1)
+    return ret.loc[:, ~ret.columns.duplicated()].reindex(columns=columns, fill_value=0)
+
+def score_stocks(comb_d, node_betas, combo_wei=None):
+    """
+    Stock scores on one date from the nodes held by the SDF (node_betas) and, if given, by the
+    original score (combo_wei); both are Series indexed by (tree_key, port_col, node_id).
+
+    final_score/norm_score: original score, node weight x geometric mean of market-wide characteristic ranks.
+    sdf_weight: the stock's weight in the SDF, sum over nodes of beta x the stock's weight in the node.
+    size_oriented_score: the same node weights beta, spread inside each node in proportion to
+        (weight in node x oriented_score), so each node still totals beta but the stocks sitting most
+        firmly inside it (by characteristic ranks inside the parent node) get more of it.
+    size_oriented_norm: size_oriented_score rank-normalised like the factor scores (see _normalise_scores).
+
+    Every stock of the date's universe (comb_d) is returned; sdf_weight and size_oriented_score are 0 for
+    stocks in no held node, final_score/norm_score are null for stocks the original score does not cover.
+    """
+    combo_wei = pd.Series(dtype=float) if combo_wei is None else combo_wei
+    node_keys = list(dict.fromkeys(
+        [k for k, w in combo_wei.items() if w != 0] + [k for k, b in node_betas.items() if b != 0]
+    ))
+
+    dfs = []
+    # tree splits are computed within each date, so growing the tree on one date alone gives the same nodes
+    for tree_key, port_col, node_id in node_keys:
+        key = (tree_key, port_col, node_id)
+
+        df_node = get_stocks_in_node(
+            comb_d,
+            tree_key,
+            port_col,
+            int(node_id),
+            Parameters.n_splits
+        )
+
+        if df_node.is_empty():
+            continue
+
+        df_scores = compute_node_scores(
+            df_node=df_node,
+            tree_key=tree_key,
+            port_col=port_col,
+            node_id=int(node_id),
+            n_split=Parameters.n_splits,
+        )
+
+        w = combo_wei.get(key, 0.0)
+        # the node's tree portfolio has no return below MIN_NODE_SIZE stocks, so the SDF holds nothing there
+        b_held = node_betas.get(key, 0.0) if df_node.height >= MIN_NODE_SIZE else 0.0
+        in_node = pl.col(Columns.size_col) / pl.col(Columns.size_col).sum()
+        tilted = in_node * pl.col("oriented_score")
+
+        dfs.append(
+            df_scores.select(
+                Columns.id_col,
+                pl.lit(w != 0).alias("in_old_score"),
+                (pl.col("factor_score") * w).alias("weighted_score"),
+                (in_node * b_held).alias("sdf_weight"),
+                (tilted / tilted.sum() * b_held).alias("size_oriented_score"),
+            )
+        )
+
+    final_df = comb_d.select(Columns.id_col)
+    if not dfs:
+        return _normalise_scores(final_df.with_columns(
+            pl.lit(None, pl.Float64).alias("final_score"), pl.lit(None, pl.Float64).alias("norm_score"),
+            pl.lit(0.0).alias("sdf_weight"), pl.lit(0.0).alias("size_oriented_score"),
+        ))
+
+    node_rows = pl.concat(dfs)
+    scores = node_rows.group_by(Columns.id_col).agg(pl.col("sdf_weight").sum(), pl.col("size_oriented_score").sum())
+
+    old = (
+        node_rows
+        .filter(pl.col("in_old_score"))
+        .group_by(Columns.id_col)
+        .agg(
+            pl.col("weighted_score").sum().alias("final_score")
+        )
+    )
+    n = old.height
+    u = ((old["final_score"].rank("min") - 0.5) / n).to_numpy()
+    old = old.with_columns(pl.Series("norm_score", norm.ppf(u), dtype=pl.Float64))
+
+    final_df = (
+        final_df
+        .join(old, on=Columns.id_col, how="left")
+        .join(scores, on=Columns.id_col, how="left")
+        .with_columns(pl.col("sdf_weight").fill_null(0.0), pl.col("size_oriented_score").fill_null(0.0))
+    )
+    return _normalise_scores(final_df)
+
+def _normalise_scores(scores):
+    """
+    size_oriented_norm: size_oriented_score across the whole universe (0 = not held, i.e. neutral),
+    rank-normalised with the same rank_normalise(cutoff_std=3.5) as the factor scores.
+    """
+    z = rank_normalise(scores["size_oriented_score"].to_pandas(), cutoff_std=3.5)
+    return scores.with_columns(pl.Series("size_oriented_norm", np.asarray(z, dtype=float)))
+
+def _refit_period(d, refit_freq):
+    """Period that date d (YYYYMMDD int) falls in; the models are refitted whenever it changes."""
+    year, month = d // 10000, d // 100 % 100
+    if refit_freq == 'Y':
+        return year
+    if refit_freq == 'Q':
+        return year, (month - 1) // 3
+    return d
 
 
+def run_backtest(reg, ret_name='gross_returns', suffix='std', start_year=None, refit_freq='Y'):
+    """
+    Run the tree backtest for one region; saves scores/returns to paths.output and returns (rets, stk_score).
 
-# %%
-# Running backtest
-if __name__ == '__main__':
-    sns.set_theme()
+    rets has two columns, both the SDF (pruned weights) applied to date d's portfolio returns:
+    'Return' uses the factor-residualised returns the model is fitted on, 'Return_mkt_adj' the
+    market-adjusted returns before residualisation.
+
+    stk_score has the stock scores of score_stocks() per date for every stock in the universe:
+    'final_score'/'norm_score' (original), 'sdf_weight' (sum(sdf_weight x market-adjusted return)
+    reproduces 'Return_mkt_adj'), 'size_oriented_score' (SDF node weights tilted towards the stocks most
+    firmly inside each node) and 'size_oriented_norm' (size_oriented_score rank-normalised to combine
+    with factor scores).
+
+    The SDF node weights (beta) of every refit are saved to {reg}_node_betas_{suffix}.csv.
+
+    refit_freq: 'Y' (yearly), 'Q' (quarterly) or 'M' (every date) - how often the tree and final models are
+    re-estimated. Between refits the last fitted models are applied to each new date.
+    """
+    if refit_freq not in ('Y', 'Q', 'M'):
+        raise ValueError(f"refit_freq must be 'Y', 'Q' or 'M', got {refit_freq!r}")
     chars = Chars()
     years = Years()
     paths = DataPaths()
-    suffix = 'std'
-    # ret_name = 'Universe Returns'
-    ret_name = 'gross_returns'
-    # regions = ['US', 'EU', 'UK', 'JP', 'AP', 'EM']
-    regions = ['GL', ]
-    for reg in regions:
- 
-        print(f"Loading base characteristics in {reg}")
+    start_year = years.min_year if start_year is None else start_year
 
-        features = list(chars.__dict__.values())[:-2]
-        if reg == "ALL":
-            data, CHARAS_LIST, _ = read_all_data(target=ret_name, ei_factors=features)
-        else:
-            data, _, CHARAS_LIST, _, _ = read_ei_data(region_=reg, target=ret_name, ei_factors=features)
-        # data = read_db_data(region_=reg, features=features, ret_name=Columns.returns_col, data_saved=data_saved)
-        # data = read_big_universe(ret_name=ret_name, features=features)
-        factor_returns = calc_fac_ret(data[features], data[ret_name], date_col="date", score_weighted=True)
+    print(f"Loading base characteristics in {reg}")
 
-        data_pl, ret_and_mcap = prepare_data(data, ret_name=ret_name, factors=None, equal_weighted=False)
-        
-        comb_pl = build_comb_pl(
-            data=data_pl,
-            merged_df=ret_and_mcap,
-            features=features+['lme'],
-        )
-        
-        # -----------------------------
-        # 1. Load all tree files once
-        # ----------------------------- 
-        tree_data = {}
-        all_dates = set()
+    features = list(chars.__dict__.values())[:-2]
+    if reg == "ALL":
+        data, CHARAS_LIST, _ = read_all_data(target=ret_name, ei_factors=features)
+    elif reg in ("full", "largecap", "largecap001"):
+        data = read_char_data(features, universe=None if reg == "full" else reg, ret_name=ret_name)
+    else:
+        data, _, CHARAS_LIST, _, _ = read_ei_data(region_=reg, target=ret_name, ei_factors=features)
+    # data = read_db_data(region_=reg, features=features, ret_name=Columns.returns_col, data_saved=data_saved)
+    # data = read_big_universe(ret_name=ret_name, features=features)
+    factor_returns = calc_fac_ret(data[features], data[ret_name], date_col="date", score_weighted=True)
 
-        for tree_file_path in paths.processed_data.iterdir():
-            if tree_file_path.suffix != '.parquet':
-                continue
-            if reg not in tree_file_path.name:
-                continue
+    data_pl, ret_and_mcap = prepare_data(data, ret_name=ret_name, factors=None, equal_weighted=True)
 
-            #  calculate residual returns
-            tree_pd = to_pandas(tree_file_path)
-            dates_idx = tree_pd.index.get_level_values(Columns.date_col)
-            valid_factors = factor_returns.loc[dates_idx]
-            df = residualize_portfolios(tree_pd, valid_factors)
-            
-            # --- Build date -> positions mapping ---
-            date_to_pos = {}
-            for pos, d in enumerate(dates_idx):
-                date_to_pos.setdefault(d, []).append(pos)
+    comb_pl = build_comb_pl(
+        data=data_pl,
+        merged_df=ret_and_mcap,
+        features=features+['lme'],
+    )
 
-            # Convert to numpy arrays (faster iloc)
-            date_to_pos = {k: np.array(v, dtype=np.int32) for k, v in date_to_pos.items()}
+    # -----------------------------
+    # 1. Load all tree files once
+    # ----------------------------- 
+    tree_data = {}
+    all_dates = set()
 
-            # --- Build cumulative (expanding) indices ---
-            sorted_dates = sorted(date_to_pos.keys())
-            cumulative_map = {}
-            running_idx = []
+    for tree_file_path in paths.processed_data.iterdir():
+        if tree_file_path.suffix != '.parquet':
+            continue
+        if reg not in tree_file_path.name:
+            continue
 
-            for d in sorted_dates:
-                running_idx.extend(date_to_pos[d])
-                cumulative_map[d] = np.array(running_idx.copy(), dtype=np.int32)
+        # raw portfolio returns; they are residualised on the factors at each refit using training rows only
+        tree_pd = to_pandas(tree_file_path)
+        dates_idx = tree_pd.index.get_level_values(Columns.date_col)
 
-            # store
-            tree_data[tree_file_path.name] = {
-                "df": df,
-                "date_map": date_to_pos,
-                "cum_map": cumulative_map
-            }
+        # --- Stable-sort rows by date so each date is a contiguous block ---
+        # train window = rows [0, start) (dates before d), test = rows [start, end) (date d)
+        order = np.argsort(dates_idx.to_numpy(), kind="stable")
+        df = tree_pd.iloc[order]
+        sorted_dates, starts, counts = np.unique(dates_idx.to_numpy()[order], return_index=True, return_counts=True)
+        date_bounds = {d: (s, s + c) for d, s, c in zip(sorted_dates.tolist(), starts, counts)}
 
-            all_dates.update(sorted_dates)
+        # store
+        tree_data[tree_file_path.name] = {
+            "df": df,
+            "factors": factor_returns.loc[dates_idx.to_numpy()[order]],
+            "date_bounds": date_bounds,
+            "betas": None,
+        }
 
-        # Sort dates once
-        dates = sorted(all_dates)
+        all_dates.update(sorted_dates)
 
-        # -----------------------------
-        # 2. Backtest loop
-        # -----------------------------
-        rets = pd.Series(index=dates, name='Return', dtype=float)
-        stock_scores = []
+    # Sort dates once
+    dates = sorted(all_dates)
 
-        for d in tqdm(dates, desc=f"{reg} Backtest", unit=Columns.date_col):
+    # -----------------------------
+    # 2. Backtest loop
+    # -----------------------------
+    rets = pd.DataFrame(index=dates, columns=['Return', 'Return_mkt_adj'], dtype=float)
+    stock_scores = []
+    refit_betas = []
 
-            if d // 10000 < years.min_year:
-            # if d < 20070330:
-                continue
+    # stock-level data split by date once, so node lookups only touch one cross-section
+    comb_by_date = {
+        (k[0] if isinstance(k, tuple) else k): v
+        for k, v in comb_pl.partition_by(Columns.date_col, as_dict=True).items()
+    }
 
-            # print(d)
-            train_list = []
-            test_list = []
+    # one worker pool reused across dates; each worker runs its grid search single-threaded
+    parallel = Parallel(n_jobs=-1)
+    fitted_period = None
 
-            for name, obj in tree_data.items():
-                # print(name)
-                df = obj["df"]
-                date_map = obj["date_map"]
-                cum_map = obj["cum_map"]
+    for d in tqdm(dates, desc=f"{reg} Backtest", unit=Columns.date_col):
 
-                if d not in date_map:
-                    continue
+        if d // 10000 < start_year:
+        # if d < 20070330:
+            continue
 
-                train_idx = cum_map[d]
-                test_idx = date_map[d]
+        # print(d)
+        trees_d = [obj for obj in tree_data.values() if d in obj["date_bounds"]]
+        if not trees_d:
+            continue
 
-                if len(train_idx) == 0:
-                    continue
+        if _refit_period(d, refit_freq) != fitted_period:
+            # fit only on dates before d, so date d stays out of sample
+            train_list, test_list = [], []
+            for obj in trees_d:
+                start, end = obj["date_bounds"][d]
+                obj["betas"] = factor_betas(obj["df"].iloc[:start], obj["factors"].iloc[:start])
+                train_list.append(_residual_returns(obj, slice(0, start)))
+                test_list.append(_residual_returns(obj, slice(start, end)))
 
-                train_val_portfolio = df.iloc[train_idx]
-                test_portfolio = df.iloc[test_idx]
-
-                best_model, overall_model = prune(train_val_portfolio)
-                selected_idx = np.nonzero(overall_model.betas[best_model, :])[0]
-                train_list.append(train_val_portfolio.iloc[:, selected_idx])
-                test_list.append(test_portfolio.iloc[:, selected_idx])
-                # train_list.append(train_val_portfolio)
-                # test_list.append(test_portfolio)
-
-            if not test_list:
-                continue
+            # prune each tree in parallel and keep only its selected portfolios
+            selected = parallel(delayed(_select_portfolios)(train) for train in train_list)
+            train_list = [train.iloc[:, idx] for train, idx in zip(train_list, selected)]
+            test_list = [test.iloc[:, idx] for test, idx in zip(test_list, selected)]
 
             # concat once
             train_portfolios = pd.concat(train_list, axis=1)
@@ -179,426 +304,63 @@ if __name__ == '__main__':
             final_sharpes, final_combo_wei, final_port = calc_sharpe(
                 all_train_portfolios, final_model
             )
-
-            dfs = []
-            for (tree_key, port_col, node_id), w in zip(final_combo_wei.index, final_combo_wei.to_numpy()):
-
-                if w == 0:
-                    continue
-
-                df_node = get_node_stocks_cached(
-                    comb_pl,
-                    tree_key,
-                    port_col,
-                    int(node_id),
-                    Parameters.n_splits
-                )
-
-                df_node = df_node.filter(pl.col(Columns.date_col)==d)
-                if df_node.is_empty():
-                    continue
-                
-                df_scores = compute_node_scores(
-                    df_node=df_node,
-                    tree_key=tree_key,
-                    port_col=port_col,
-                )
-                
-                df_scores = df_scores.with_columns(
-                    (pl.col("factor_score") * w).alias("weighted_score")
-                )
-
-                dfs.append(
-                    df_scores.select([Columns.id_col, "weighted_score"])
-                )
-
-            if len(dfs) > 0:
-                final_df = (
-                    pl.concat(dfs)
-                    .group_by(Columns.id_col)
-                    .agg(
-                        pl.col("weighted_score").sum().alias("final_score")
-                    )
-                )
-            else:
-                final_df = pl.DataFrame()
-
-            n = final_df.height
-
-            final_df = final_df.with_columns([
-                (
-                    (pl.col("final_score").rank("min") - 0.5) / n
-                ).alias("u")
-            ]).with_columns(
-                pl.col("u")
-                .map_elements(norm.ppf)
-                .alias("norm_score")
-            ).drop("u")   
-            
-            final_df = final_df.with_columns(
-                pl.lit(d).alias(Columns.date_col)
+            fitted_period = _refit_period(d, refit_freq)
+            refit_betas.append(
+                pd.Series(final_model.betas[final_best_model], index=final_model.feature_weights.index, name='beta')
+                .loc[lambda x: x != 0].reset_index().assign(refit_date=d)
+            )
+        else:
+            # reuse the last fit: take this date's returns of the portfolios the final model was fitted on
+            test_portfolios = pd.concat(
+                [_residual_returns(obj, slice(*obj["date_bounds"][d])) for obj in trees_d if obj["betas"] is not None],
+                axis=1,
+            )
+            all_test_portfolios = test_portfolios.loc[:, ~test_portfolios.columns.duplicated()].reindex(
+                columns=final_model.feature_weights.index, fill_value=0
             )
 
-            stock_scores.append(final_df)
-            sdf = final_model.predict(all_test_portfolios)
-            rets.loc[d] = sdf[final_best_model].to_numpy()
+        node_betas = pd.Series(final_model.betas[final_best_model], index=final_model.feature_weights.index)
+        comb_d = comb_by_date.get(d)
+        final_df = score_stocks(comb_d, node_betas, final_combo_wei) if comb_d is not None else pl.DataFrame()
+
+        final_df = final_df.with_columns(
+            pl.lit(d).alias(Columns.date_col)
+        )
+
+        stock_scores.append(final_df)
+        sdf = final_model.predict(all_test_portfolios)
+        rets.loc[d, 'Return'] = sdf[final_best_model].iloc[0]
+        mkt_adj_sdf = final_model.predict(_market_adjusted_returns(trees_d, d, final_model.feature_weights.index))
+        rets.loc[d, 'Return_mkt_adj'] = mkt_adj_sdf[final_best_model].iloc[0]
 
 
 
-        stk_score = pl.concat(stock_scores)
-        stk_score.write_csv(paths.output / f'{reg}_score_{suffix}.csv')
-        
-        rets = rets.dropna()
-        rets.cumsum().plot()
-        plt.title(f"{reg} cumulative returns")
-        plt.show()
+    stk_score = pl.concat(stock_scores)
+    stk_score.write_csv(paths.output / f'{reg}_score_{suffix}.csv')
+    pd.concat(refit_betas).to_csv(paths.output / f'{reg}_node_betas_{suffix}.csv', index=False)
 
-        rets.to_csv(paths.output / f'{reg}_ret_{suffix}.csv')
-    
-    # %% 
-    # performance at portfolio level
+    rets = rets.dropna()
+    rets.cumsum().plot()
+    plt.title(f"{reg} cumulative returns")
+    plt.show()
+
+    rets.to_csv(paths.output / f'{reg}_ret_{suffix}.csv')
+
+    return rets, stk_score
+
+
+# %%
+# Running backtest
+if __name__ == '__main__':
     sns.set_theme()
-    chars = Chars()
-    years = Years()
-    paths = DataPaths()
     suffix = 'std'
-    ret_name = 'gross_returns'
-    regions = ['GL', 'US', 'EU', 'UK', 'JP', 'AP', 'EM']
-    # regions = ['US', ]
+    # ret_name = 'Universe Returns'
+    # ret_name = 'gross_returns'
+    ret_name = 'ret'
+    # regions = ['US', 'EU', 'UK', 'JP', 'AP', 'EM']
+    # regions = ['GL', ]
+    regions = ['full', ]
     for reg in regions:
-        print(f'Processing {reg}')
-        # features = list(chars.__dict__.values())[:-2]
-        features = ['val', 'qual', 'fcf_rank', 'trd', 'sen']
-        if reg == "ALL":
-            data, CHARAS_LIST, _ = read_all_data(target=ret_name, ei_factors=features)
-        else:
-            data, _, CHARAS_LIST, _, _ = read_ei_data(region_=reg, target=ret_name, ei_factors=features)
-        data.loc[:, 'lme'] = np.log(data[Columns.size_col])
-        data = data.swaplevel(0, 1)
-
-        ai_pnl = pd.read_csv(paths.output / f"{reg}_ret_{suffix}.csv")
-        ai_pnl.columns = ['Date', 'Return']
-        ai_pnl = ai_pnl.set_index('Date')
-        ei_pnl = calc_fac_ret(data[features].mean(axis=1), data[ret_name], date_col='date', score_weighted=True)
-        pnl = pd.concat([ai_pnl, ei_pnl], axis=1, sort=True)
-        pnl.index = pd.to_datetime(pnl.index, format="%Y%m%d")
-        dates = pnl.index
-        pnl = pnl.loc[dates[dates >= '2006-01-31']].fillna(0)
-        pnl.columns = ['Tree', 'EI']
-        pnl['Combined'] = pnl['EI'] * 0.7 + pnl['Tree'] * 0.3 
-        # pnl = pd.concat([pnl, comb_pnl], axis=1)
-        pnl.cumsum().plot(title=f'{reg}')
-        plt.show()
-        print(summary(pnl, ann_factor=12, sorted=False))
-        print(pnl.corr())
-
-    # %%
-    # performance analysis
-    sns.set_theme()
-    chars = Chars()
-    years = Years()
-    paths = DataPaths()
-    suffix = 'sub_fac2'
-    ret_name = 'gross_returns'
-    factor_weights = {
-        'ALL': {'fcf_rank': 0.08, 'qual': 0.37, 'sen': 0.22, 'trd': 0.15, 'val': 0.18},
-        'AP': {'fcf_rank': 0.085, 'qual': 0.365, 'sen': 0.18, 'trd': 0.2, 'val': 0.17},
-        'EM': {'fcf_rank': 0.085, 'qual': 0.385, 'sen': 0.18, 'trd': 0.2, 'val': 0.15},
-        'EU': {'fcf_rank': 0.085, 'qual': 0.365, 'sen': 0.19, 'trd': 0.19, 'val': 0.17},
-        'GL': {'fcf_rank': 0.08, 'qual': 0.37, 'sen': 0.22, 'trd': 0.15, 'val': 0.18},
-        'JP': {'fcf_rank': 0.25, 'qual': 0.25, 'sen': 0.125, 'trd': 0.125, 'val': 0.25},
-        'UK': {'fcf_rank': 0.07, 'qual': 0.36, 'sen': 0.22, 'trd': 0.17, 'val': 0.18},
-        'US': {'fcf_rank': 0.06, 'qual': 0.4, 'sen': 0.18, 'trd': 0.18, 'val': 0.18},
-    }
-    # quant_winter_start = 20180101
-    # quant_winter_end = 20210101
-    # quant_winter_start = 20210101
-    # quant_winter_end = 20230101
-    quant_winter_start = 20060601
-    quant_winter_end = 20260501
-    # regions = ['GL', 'US', 'EU', 'UK', 'JP', 'AP', 'EM']
-    # regions = ['GL', 'US', 'EU', 'UK']
-    regions = ['GL', ]
-    # regions = ['JP', 'AP']
-    for reg in regions:
-        print(f'Processing {reg}')
-        # features = list(chars.__dict__.values())[:-2]
-        features = ['val', 'qual', 'fcf_rank', 'trd', 'sen']
-        if reg == "ALL":
-            data, CHARAS_LIST, stock_info = read_all_data(target=ret_name, ei_factors=features)
-        else:
-            data, _, CHARAS_LIST, _, stock_info = read_ei_data(region_=reg, target=ret_name, ei_factors=features)
-        data.loc[:, 'lme'] = np.log(data[Columns.size_col])
-        data = data.swaplevel(0, 1)
-        stock_info = stock_info.swaplevel(0, 1)
-
-        ai_score = pd.read_csv(paths.output / f"{reg}_score_{suffix}.csv").set_index(['date', 'permno'])['norm_score']
-        ai_score.name = 'Tree'
-        ei_score = data[features]
-
-        # select quant winter
-        dates = data.index.levels[0]
-        quant_winter = dates[(dates >= quant_winter_start) & (dates < quant_winter_end)]
-
-        data = data.loc[quant_winter]
-        ai_score = ai_score.loc[quant_winter]
-        ei_score = ei_score.loc[quant_winter]
-        combined_score = ei_score.merge(ai_score, left_index=True, right_index=True, how='left')
-        dates = combined_score.index.get_level_values('date').unique()
-        valid_dates = ~combined_score['Tree'].groupby('date').apply(lambda x: x.isna().all())
-        combined_score = combined_score.loc[dates[valid_dates]]
-        ai_pnl = calc_fac_ret(ai_score, data[ret_name], date_col='date', score_weighted=True)
-        ei_pnl = calc_fac_ret(ei_score.mean(axis=1), data[ret_name], date_col='date', score_weighted=True)
-        combined_pnl = calc_fac_ret(combined_score.mean(axis=1), data[ret_name], date_col='date', score_weighted=True)
-        pnl = pd.concat([ai_pnl, ei_pnl, combined_pnl], axis=1).dropna()
-        pnl.index = pd.to_datetime(pnl.index, format="%Y%m%d")
-        pnl.columns = ['Tree', 'EI', 'Combined']
-        pnl.cumsum().plot(title=f'{reg}: Performance').legend(loc='upper left', bbox_to_anchor=(1, 1))
-        plt.show()
-        print(summary(pnl, ann_factor=12, sorted=False))
-        print(pnl.corr())
-
-        roll_perf = pnl.rolling(12).sum()
-        roll_perf.index = pd.to_datetime(roll_perf.index, format="%Y%m%d")
-        roll_perf.plot(title=f"{reg}: Rolling 1-year")
-        plt.show()
-        
-        roll_perf = pnl.rolling(36).sum()
-        roll_perf.index = pd.to_datetime(roll_perf.index, format="%Y%m%d")
-        roll_perf.plot(title=f"{reg}: Rolling 3-year")
-        plt.show()
-
-        factor_pnl = calc_fac_ret(combined_score, data['gross_returns'], date_col='date', score_weighted=True)
-        factor_pnl.index = pd.to_datetime(factor_pnl.index, format="%Y%m%d")
-        factor_pnl.cumsum().plot(title=f"{reg}: Factor Performance").legend(loc='upper left', bbox_to_anchor=(1, 1))
-        plt.show()
-        print(summary(factor_pnl, ann_factor=12, sorted=False))
-        print(factor_pnl.corr())
-
-        # tree_grp_exp = pd.concat([ai_score, stock_info['sector']], axis=1, join='inner').groupby('date').apply(lambda x: calc_group_exposure(x.iloc[:, 0], groups=x.iloc[:, 1]))
-        # ei_grp_exp = pd.concat([ei_score.mean(axis=1), stock_info['sector']], axis=1, join='inner').groupby('date').apply(lambda x: calc_group_exposure(x.iloc[:, 0], groups=x.iloc[:, 1]))
-        # combined_grp_exp = pd.concat([combined_score.mean(axis=1), stock_info['sector']], axis=1, join='inner').groupby('date').apply(lambda x: calc_group_exposure(x.iloc[:, 0], groups=x.iloc[:, 1]))
-        tree_grp_exp = grouped_exposure(pd.concat([ai_score, stock_info['sector']], axis=1, join='inner'))
-        ei_grp_exp = grouped_exposure(pd.concat([ei_score.mean(axis=1), stock_info['sector']], axis=1, join='inner'))
-        combined_grp_exp = grouped_exposure(pd.concat([combined_score.mean(axis=1), stock_info['sector']], axis=1, join='inner'))
-        grp_exp = pd.concat([tree_grp_exp, ei_grp_exp, combined_grp_exp], axis=1)
-        grp_exp.columns = ['Tree', 'EI', 'Combined']
-        grp_exp.groupby('sector').mean().plot(kind='bar', title=f"{reg}: Average Exposure")
-        tree_grp_exp_df = tree_grp_exp.unstack()
-        tree_grp_exp_df.index = pd.to_datetime(tree_grp_exp_df.index, format="%Y%m%d")
-        ax = tree_grp_exp_df.plot(title=f"{reg}: Sector Exposure")
-        avg_exp = tree_grp_exp_df.mean()
-        labels = [
-            f"{col}: {avg_exp[col]*100:.1f}%"
-            for col in tree_grp_exp_df.columns
-        ]
-        ax.legend(labels, loc='upper left', bbox_to_anchor=(1, 1))
-
-        factor_turnover = combined_score.apply(lambda x: calc_turnover(x, stock_id='permno', date_col='date'))
-        factor_turnover.index = pd.to_datetime(factor_turnover.index, format="%Y%m%d")
-        avg_to = factor_turnover.mean()
-        ax = factor_turnover.plot(title=f"{reg}: Turnover")
-        labels = [
-            f"{col}: {avg_to[col]*100:.1f}%"
-            for col in factor_turnover.columns
-        ]
-        ax.legend(labels, loc='upper left', bbox_to_anchor=(1, 1))
-        plt.show()
-
-        factor_decay = combined_score.apply(lambda x: calc_decay(x, date_col='date'))
-        factor_decay.plot(title=f"{reg}: Decay").legend(loc='upper left', bbox_to_anchor=(1, 1))
-        plt.show()
-
-        factor_exposure = combined_score.groupby('date').apply(lambda x: x.iloc[:, :-1].apply(lambda y: calc_factor_exposure(x.iloc[:, -1], factor=y)))
-        factor_exposure.index = pd.to_datetime(factor_exposure.index, format="%Y%m%d")
-        avg_exp = factor_exposure.mean()
-        ax = factor_exposure.plot(title=f"{reg}: Factor Exposure")
-        labels = [
-            f"{col}: {avg_exp[col]:.2f}"
-            for col in factor_exposure.columns
-        ]
-        ax.legend(labels, loc='upper left', bbox_to_anchor=(1, 1))
-        plt.show()
-        
-        plt.figure(figsize=(10,6))
-        corr_by_date = combined_score.groupby('date').corr()
-        cols = combined_score.columns
-        for i in range(len(cols)-1):
-            s = corr_by_date.loc[(slice(None), cols[i]), 'Tree']
-            s.index = s.index.droplevel(1)
-            s.index = pd.to_datetime(s.index, format="%Y%m%d")
-            avg_corr = s.mean()
-            plt.plot(s, label=f"{cols[i]}-tree: {avg_corr*100:.1f}%")
-        plt.legend(loc='upper left', bbox_to_anchor=(1, 1))
-        plt.title(f"{reg}: Correlation")
-        plt.show()
-
-        fac_wei = pd.Series(factor_weights[reg])
-        ei_alpha = combined_score.iloc[:,:-1].mean(axis=1)
-        ei_prod = combined_score.iloc[:, :-1].fillna(0).dot(fac_wei)
-        prod_alpha = combined_score.iloc[:, :-1].fillna(0).dot(fac_wei)*0.8 + combined_score.iloc[:, -1].fillna(0)*0.2
-        new_alpha = combined_score.mean(axis=1)
-        alpha = pd.concat([ei_prod, combined_score.iloc[:, -1], ei_alpha, new_alpha, prod_alpha], axis=1)
-        alpha.columns = ['ei', 'tree', 'ew_ei', 'ew_all', 'prod']
-        alpha.to_csv(f'result/{reg}_all_score_{suffix}.csv')
-
-        r2_tree = pd.concat([ai_score, data['gross_returns'].groupby('permno').shift()], axis=1).dropna().groupby('date').apply(lambda x: r_squared(x.iloc[:, :-1], x.iloc[:, -1]))
-        r2_ei = ei_score.merge(data['gross_returns'].groupby('permno').shift(), left_index=True, right_index=True).dropna().groupby('date').apply(lambda x: r_squared(x.iloc[:, :-1], x.iloc[:, -1]))
-        r2_combined = combined_score.merge(data['gross_returns'].groupby('permno').shift(), left_index=True, right_index=True).dropna().groupby('date').apply(lambda x: r_squared(x.iloc[:, :-1], x.iloc[:, -1]))
-        r2 = pd.concat([r2_tree, r2_ei, r2_combined], axis=1)
-        r2.index = pd.to_datetime(r2.index, format="%Y%m%d")
-        r2.columns = ['Tree', 'EI', 'Combined']
-        ax = r2.plot(title=f"{reg}: R2")
-        labels = [
-            f"{col}: {r2[col].mean():.2f}"
-            for col in r2.columns
-        ]
-        ax.legend(labels, loc='upper left', bbox_to_anchor=(1, 1))
-        plt.show()
-        stats, pvalue = ttest_rel(r2['EI'], r2['Combined'])
-        print(f"Stats: {stats}, P-value: {pvalue}")
-    
-        tree_residuals = get_residuals(combined_score, factor_names=features, return_name='Tree', date_name='date')
-        resid_ic = pd.concat([tree_residuals, data['gross_returns']], axis=1).groupby('date').apply(lambda x: x.corr().iloc[0, 1])
-        tree_ic = pd.concat([ai_score, data['gross_returns']], axis=1).groupby('date').apply(lambda x: x.corr().iloc[0, 1])
-        alpha_ic = pd.concat([tree_ic, resid_ic], axis=1)
-        alpha_ic.index = pd.to_datetime(alpha_ic.index, format="%Y%m%d")
-        alpha_ic.columns = ['Tree', 'Residual']
-        ax = alpha_ic.plot(title=f"{reg}: IC")
-        labels = [
-            f"{col}: {alpha_ic[col].mean():.2f}"
-            for col in alpha_ic.columns
-        ]
-        ax.legend(labels, loc='upper left', bbox_to_anchor=(1, 1))
-        plt.show()
-        
-        # ei_ic = pd.concat([ei_score.mean(axis=1), data['gross_returns']], axis=1).groupby('date').apply(lambda x: x.corr().iloc[0, 1])
-        # tree_ic = pd.concat([ai_score, data['gross_returns']], axis=1).groupby('date').apply(lambda x: x.corr().iloc[0, 1])
-        # combined_ic = pd.concat([combined_score.mean(axis=1), data['gross_returns']], axis=1).groupby('date').apply(lambda x: x.corr().iloc[0, 1])
-        # ic = pd.concat([tree_ic, ei_ic, combined_ic], axis=1)
-        # ic.index = pd.to_datetime(alpha_ic.index, format="%Y%m%d")
-        # ic.columns = ['Tree', 'EI', 'Combined']
-        ic = alpha.apply(lambda x: pd.concat([x, data['gross_returns']], axis=1).groupby('date').apply(lambda x: x.corr().iloc[0, 1]))
-        ic.index = pd.to_datetime(ic.index, format="%Y%m%d")
-        ax = ic.plot(title=f"{reg}: IC")
-        labels = [
-            f"{col}: {ic[col].mean():.2f}"
-            for col in ic.columns
-        ]
-        ax.legend(labels, loc='upper left', bbox_to_anchor=(1, 1))
-        plt.show()
-        stats, pvalue = ttest_rel(ic['ei'], ic['prod'])
-        print(f"Stats: {stats}, P-value: {pvalue}")
-        print(pd.DataFrame(ic.mean()/ic.std(), columns=["ICIR"]))
-
-        bt_rets = pd.read_excel(rf"J:\Quant\Enhanced Index\Team\Zhen\projects\ap_trees\Backtest\backtest_pickles\better_beta_{reg}_prod_2026-09-08_full_constraints_{suffix}_summary.xlsx", sheet_name="rets_active").set_index("dates")
-        bt_rets = bt_rets.loc[quant_winter]
-        bt_rets.index = pd.to_datetime(bt_rets.index, format="%Y%m%d")
-        ei_alpha = ei_pnl.copy()
-        ei_alpha.index = pd.to_datetime(ei_alpha.index, format="%Y%m%d")
-        models = bt_rets.columns
-        r2_ts = pd.DataFrame(index=models, columns=['tree2EI', 'Tree', 'EI', 'Combined'])
-        for m in models:
-            r2_ts.loc[m, 'tree2EI'] = r_squared(factor_pnl[features], factor_pnl['Tree'])
-            r2_ts.loc[m, 'Tree'] = r_squared(factor_pnl["Tree"], bt_rets[m])
-            r2_ts.loc[m, 'EI'] = r_squared(factor_pnl[features], bt_rets[m])
-            r2_ts.loc[m, 'Combined'] = r_squared(factor_pnl, bt_rets[m])
-            # r2_ts.loc[m, 'Tree'] = r_squared(factor_pnl["Tree"], ei_alpha)
-            # r2_ts.loc[m, 'EI'] = r_squared(factor_pnl[features], ei_alpha)
-            # r2_ts.loc[m, 'Combined'] = r_squared(factor_pnl, ei_alpha)
-        print(r2_ts)
-        # r2_ts.to_csv(f"{reg}_r2.csv")
-        bt_rets.cumsum().plot(title=f"{reg}")
-        plt.show()
-        print(summary(bt_rets, sorted=False, ann_factor=12))
-
-        bt_pickle = pd.read_pickle(rf"J:\Quant\Enhanced Index\Team\Zhen\projects\ap_trees\Backtest\backtest_pickles\better_beta_{reg}_prod_2026-09-08_full_constraints_{suffix}.pickle")
-        models = dict(zip(bt_pickle.keys(), alpha.columns))
-        corr = {} 
-        for m, a in models.items():
-            alpha_a = alpha[a]
-            alpha_a.index = pd.MultiIndex.from_arrays(
-                [
-                    pd.to_datetime(alpha_a.index.get_level_values('date'), format="%Y%m%d"),
-                    alpha_a.index.get_level_values('permno')
-                ],
-                names=bt_pickle[m]['optimal_weight'].index.names
-            )
-            corr[a] = pd.concat([alpha_a, bt_pickle[m]['optimal_weight']], axis=1, join='inner').groupby('dates').apply(lambda x: x.corr().iloc[0, 1])
-        tc = pd.DataFrame(corr)
-        ax = tc.plot(title=f"{reg}: TC")
-        labels = [
-            f"{col}: {tc[col].mean():.2f}"
-            for col in tc.columns
-        ]
-        ax.legend(labels, loc='upper left', bbox_to_anchor=(1, 1))
-        plt.show()
-        stats, pvalue = ttest_rel(tc['ei'], tc['prod'])
-        print(f"Stats: {stats}, P-value: {pvalue}")
-        
-    # %%
-    # sns.set_theme()
-    # chars = Chars()
-    # paths = DataPaths()
-    # reg = "GL"
-    # ret_name = "Universe Returns"
-    # groups = ['region', 'ind']
-    # ai_features = list(chars.__dict__.values())[:-2]
-    # ai_data = read_big_universe(ret_name=ret_name, features=ai_features, add_groups=True)
-    # ai_score = pd.read_csv(paths.output / f"{reg}_score_big_univ.csv").set_index(['date', 'permno'])['final_score']
-    # ai_score.name = 'Tree'
-    # score_and_ret = pd.concat([ai_data[[ret_name] + groups].swaplevel(0, 1), ai_score], axis=1, join='outer')
-    # score_and_ret["alpha"] = score_and_ret.groupby(["date"])["Tree"].transform(rank_normalize)
-    # score_and_ret["region_industry_neutral"] = score_and_ret.groupby(["date", "region", "ind"])["Tree"].transform(rank_normalize)
-    # alpha_scores = score_and_ret[['alpha', 'region_industry_neutral']]
-    # pnl = calc_fac_ret(alpha_scores, score_and_ret[ret_name]/100, q=5, date_col='date', score_weighted=True)
-    # pnl.index = pd.to_datetime(pnl.index, format="%Y%m%d")
-    # pnl.cumsum().plot()
-    # plt.show()
-    # print(summary(pnl, ann_factor=12, sorted=False))
-    # to = alpha_scores.apply(lambda x: calc_turnover(x, date_col='date', stock_id='permno'))
-    # to.index = pd.to_datetime(to.index, format="%Y%m%d")
-    # to.plot()
-    # plt.show()
-    # decay = alpha_scores.apply(lambda x: calc_decay(x, date_col='date'))
-    # decay.plot()
-    # plt.show()
-    # factor_scores = ai_data[["by", "vol", "mom_1y1m", "mkt_cap"]].groupby('date').transform(lambda x: rank_normalize(x))
-    # scores1 = factor_scores.merge(alpha_scores['alpha'], left_index=True, right_index=True)
-    # factor_exposure1 = scores1.groupby('date').apply(lambda x: x.iloc[:, :-1].apply(lambda y: calc_factor_exposure(x.iloc[:, -1], factor=y)))
-    # factor_exposure1.index = pd.to_datetime(factor_exposure1.index, format="%Y%m%d")
-    # avg_exp = factor_exposure1.mean()
-    # avg_exp.plot(kind='bar')
-    # ax = factor_exposure1.plot(title=f"{reg}: Factor Exposure: alpha")
-    # labels = [
-    #     f"{col}: {avg_exp[col]:.2f}"
-    #     for col in factor_scores.columns
-    # ]
-    # ax.legend(labels, loc='upper left', bbox_to_anchor=(1, 1))
-    # plt.show()
-
-
-    # scores2 = factor_scores.merge(alpha_scores['region_industry_neutral'], left_index=True, right_index=True)
-    # factor_exposure2 = scores2.groupby('date').apply(lambda x: x.iloc[:, :-1].apply(lambda y: calc_factor_exposure(x.iloc[:, -1], factor=y)))
-    # factor_exposure2.index = pd.to_datetime(factor_exposure2.index, format="%Y%m%d")
-    # avg_exp = factor_exposure2.mean()
-    # avg_exp.plot(kind='bar')
-    # ax = factor_exposure2.plot(title=f"{reg}: Factor Exposure: region_industry_neutral")
-    # labels = [
-    #     f"{col}: {avg_exp[col]:.2f}"
-    #     for col in factor_scores.columns
-    # ]
-    # ax.legend(labels, loc='upper left', bbox_to_anchor=(1, 1))
-    # plt.show()
-    
-    # all_scores = factor_scores.swaplevel(0, 1).merge(alpha_scores, left_index=True, right_index=True, how='left')
-    # all_pnls = calc_fac_ret(all_scores, ai_data[ret_name].swaplevel(0, 1)/100, q=5, date_col='date')
-    # all_pnls.index = pd.to_datetime(all_pnls.index, format="%Y%m%d")
-    # all_pnls.cumsum().plot()
-    # plt.show()
-    # print(summary(all_pnls, ann_factor=12, sorted=False))
-    # decays = all_scores.apply(lambda x: calc_decay(x, date_col='date'))
-    # decays.plot()
-    # plt.show()
+        run_backtest(reg, ret_name=ret_name, suffix=suffix, start_year=1980, refit_freq='Y')
 
 # %%

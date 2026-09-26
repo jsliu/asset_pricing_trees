@@ -17,9 +17,9 @@ from tqdm import tqdm
 import numpy as np
 import pandas as pd
 
-def residualize_portfolios(tree_ret, factor_ret):
+def factor_betas(tree_ret, factor_ret):
     """
-    Residualize many portfolio returns against a factor model.
+    Estimate the factor model (intercept + factors) for many portfolio returns.
 
     Parameters
     ----------
@@ -30,8 +30,8 @@ def residualize_portfolios(tree_ret, factor_ret):
 
     Returns
     -------
-    pd.DataFrame
-        Residual returns, same shape as tree_ret
+    np.ndarray
+        (K+1) x N coefficients, intercept in the first row
     """
 
     # align dates
@@ -43,13 +43,41 @@ def residualize_portfolios(tree_ret, factor_ret):
     X = np.column_stack([np.ones(len(F)), F])  # T x (K+1)
 
     # solve all regressions simultaneously
-    B = np.linalg.lstsq(X, Y, rcond=None)[0]   # (K+1) x N
+    return np.linalg.lstsq(X, Y, rcond=None)[0]   # (K+1) x N
 
-    # fitted values
-    Y_hat = X @ B
 
-    # residuals
-    resid = Y - Y_hat
+def residualize_portfolios(tree_ret, factor_ret, betas=None):
+    """
+    Residualize many portfolio returns against a factor model: returns minus the factor part B·F.
+    The intercept is used when estimating B but not subtracted, so the residuals keep each
+    portfolio's alpha (the average return not explained by the factors).
+
+    Parameters
+    ----------
+    tree_ret : pd.DataFrame
+        T x N node portfolio returns
+    factor_ret : pd.DataFrame
+        T x K factor returns
+    betas : np.ndarray, optional
+        (K+1) x N coefficients from factor_betas(). Pass betas estimated on past data to
+        residualize later dates without look-ahead. If None, they are estimated on these same
+        dates (in-sample).
+
+    Returns
+    -------
+    pd.DataFrame
+        Residual returns (alpha + noise), same shape as tree_ret
+    """
+    if betas is None:
+        betas = factor_betas(tree_ret, factor_ret)
+
+    # align dates
+    common_idx = tree_ret.index.intersection(factor_ret.index)
+    Y = tree_ret.loc[common_idx].to_numpy()
+    F = factor_ret.loc[common_idx].to_numpy()
+
+    # factor part only; betas[0] is the intercept (alpha), which stays in the residual
+    resid = Y - F @ betas[1:]
 
     return pd.DataFrame(
         resid,
@@ -91,7 +119,7 @@ def to_pandas(tree_file_path, missing_rate=0.1):
     return tp.loc[:, tp.columns[valid_col]].fillna(0)
 
 
-def prune(tree_returns):
+def prune(tree_returns, n_jobs=-1):
     logging.info('Splitting data')
 
     train_val_portfolios, test_portfolios = train_test_split(
@@ -111,7 +139,7 @@ def prune(tree_returns):
     }
     tscv = TimeSeriesSplit(n_splits=Parameters.cv_splits)
     tree_model = TreeElastic(k_min=Parameters.k_min, k_max=Parameters.k_max)
-    cv_search = GridSearchCV(estimator=tree_model, param_grid=param_grid, verbose=0, cv=tscv, n_jobs=-1)
+    cv_search = GridSearchCV(estimator=tree_model, param_grid=param_grid, verbose=0, cv=tscv, n_jobs=n_jobs)
     
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", category=ConvergenceWarning)

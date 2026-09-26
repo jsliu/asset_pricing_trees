@@ -291,3 +291,24 @@ def read_all_data(target, ei_factors):
     data = data.loc[~data.index.duplicated()].sort_index(level='date')
     stock_info = stock_info.loc[~stock_info.index.duplicated()].sort_index(level='date')
     return data, features_list, stock_info
+
+def read_char_data(features, universe=None, ret_name='ret'):
+    """
+    Read the monthly characteristic CSVs (date x "<CHAR>.<permno>" wide tables) into a
+    (permno, date) panel with the features, returns (ret_name) and size (mkt_cap).
+    Files are matched case-insensitively as <name>.csv, or <name>_<universe>.csv if universe is given.
+    """
+    path = DataPaths()
+    files = {f.stem.lower(): f for f in path.input_data.glob('*.csv')}
+    columns = {}
+    for col_name, file_name in [(ret_name, 'ret'), ('mkt_cap', 'lme')] + [(f, f) for f in features]:
+        stem = file_name if universe is None else f'{file_name}_{universe}'
+        wide = pd.read_csv(files[stem.lower()], index_col=0)
+        wide.columns = wide.columns.str.split('.').str[-1].astype(int)
+        columns[col_name] = wide.stack()
+    data = pd.concat(columns, axis=1)
+    data.index.names = ['date', 'permno']
+    data = data.swaplevel().sort_index()
+    data = data.dropna(subset=[ret_name, 'mkt_cap'])
+    # zero market cap gives lme = -log(0) = inf and zero portfolio weight
+    return data[data['mkt_cap'] > 0]
