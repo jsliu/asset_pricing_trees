@@ -173,9 +173,7 @@ if __name__ == '__main__':
         print(f"Pruning tree in {reg}")
         files = list(paths.processed_data.iterdir())
         for tree_file_path in tqdm(files):
-            if tree_file_path.suffix != '.parquet':
-                continue
-            if reg not in tree_file_path.name:
+            if not paths.is_tree_file(tree_file_path, reg):
                 continue
 
             node_returns = to_pandas(tree_file_path)

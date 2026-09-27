@@ -1,0 +1,46 @@
+<section id="pipeline" data-transition="fade" style="background:#EFECE4; color:#1F2A3D; font-family:'IBM Plex Sans', Arial, sans-serif; padding:128px 128px 160px; display:flex; flex-direction:column; gap:48px">
+<div style="display:flex; flex-direction:column; gap:12px">
+<p style="font-size:24px; letter-spacing:3px; text-transform:uppercase; color:#B04A18; font-weight:600">Pipeline</p>
+<h2 style="font-family:'Source Serif 4', Georgia, serif; font-size:60px; font-weight:600; line-height:1.1; color:#14213D">From characteristics to an SDF and stock scores</h2>
+</div>
+<div style="display:flex; align-items:center; gap:16px">
+<div style="flex:1; align-self:stretch; background:#FDFCF9; border:1px solid #D9D5CA; border-radius:16px; padding:28px; display:flex; flex-direction:column; gap:12px">
+<p style="font-size:24px; font-weight:600; color:#B04A18">1</p>
+<h3 style="font-size:30px; font-weight:600; color:#14213D">Grow trees</h3>
+<p style="font-size:24px; line-height:1.4; color:#3E4A5C">36 sets: size plus 2 of 9 characteristics, depth 4</p>
+</div>
+<x-shape kind="arrow-right" style="width:48px; height:24px; background:#B04A18"></x-shape>
+<div style="flex:1; align-self:stretch; background:#FDFCF9; border:1px solid #D9D5CA; border-radius:16px; padding:28px; display:flex; flex-direction:column; gap:12px">
+<p style="font-size:24px; font-weight:600; color:#B04A18">2</p>
+<h3 style="font-size:30px; font-weight:600; color:#14213D">Residualise</h3>
+<p style="font-size:24px; line-height:1.4; color:#3E4A5C">r − B·F, with B from the training window; alpha kept</p>
+</div>
+<x-shape kind="arrow-right" style="width:48px; height:24px; background:#B04A18"></x-shape>
+<div style="flex:1; align-self:stretch; background:#FDFCF9; border:1px solid #D9D5CA; border-radius:16px; padding:28px; display:flex; flex-direction:column; gap:12px">
+<p style="font-size:24px; font-weight:600; color:#B04A18">3</p>
+<h3 style="font-size:30px; font-weight:600; color:#14213D">Prune each tree</h3>
+<p style="font-size:24px; line-height:1.4; color:#3E4A5C">Elastic-net SDF, grid search, run in parallel</p>
+</div>
+<x-shape kind="arrow-right" style="width:48px; height:24px; background:#B04A18"></x-shape>
+<div style="flex:1; align-self:stretch; background:#FDFCF9; border:1px solid #D9D5CA; border-radius:16px; padding:28px; display:flex; flex-direction:column; gap:12px">
+<p style="font-size:24px; font-weight:600; color:#B04A18">4</p>
+<h3 style="font-size:30px; font-weight:600; color:#14213D">Combine</h3>
+<p style="font-size:24px; line-height:1.4; color:#3E4A5C">Pool the selected nodes and prune again</p>
+</div>
+<x-shape kind="arrow-right" style="width:48px; height:24px; background:#B04A18"></x-shape>
+<div style="flex:1; align-self:stretch; background:#14213D; border-radius:16px; padding:28px; display:flex; flex-direction:column; gap:12px">
+<p style="font-size:24px; font-weight:600; color:#F2A65A">5</p>
+<h3 style="font-size:30px; font-weight:600; color:#F7F6F2">Score</h3>
+<p style="font-size:24px; line-height:1.4; color:#C9D3E0">Node weights β give monthly returns and stock scores</p>
+</div>
+</div>
+<div style="display:flex; gap:32px">
+<p style="flex:1; font-size:28px; line-height:1.45; color:#3E4A5C"><b>Refit</b> every January on all months before the test month; the months in between reuse that fit.</p>
+<p style="flex:1; font-size:28px; line-height:1.45; color:#3E4A5C"><b>Outputs</b>: Return (factor-hedged), Return_mkt_adj (market-adjusted) and stock scores for every stock in the universe.</p>
+</div>
+<div style="position:absolute; left:128px; bottom:64px; width:1664px; display:flex; justify-content:space-between">
+<p style="font-size:24px; color:#6B7585">Asset Pricing Trees · backtest review</p>
+<p style="font-size:24px; color:#6B7585">4</p>
+</div>
+<aside>Each January the tree returns are residualised on the nine factor returns with betas from the training window, each tree is pruned on its own, and the survivors are pooled and pruned once more. The final node weights give the SDF return and the stock scores for the following twelve months.</aside>
+</section>

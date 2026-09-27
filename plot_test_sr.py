@@ -102,9 +102,7 @@ if __name__ == '__main__':
             all_portfolios = pd.DataFrame()
             files = list(paths.processed_data.iterdir())
             for tree_file_path in tqdm(files):
-                if tree_file_path.suffix != '.parquet':
-                    continue
-                if reg not in tree_file_path.name:
+                if not paths.is_tree_file(tree_file_path, reg):
                     continue
                 
                 # logging.info('Loading model dump')

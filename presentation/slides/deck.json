@@ -1,0 +1,20 @@
+{
+  "v": 4,
+  "createdOnFiles": {"v": 1, "at": "2026-09-26T19:00:00Z"},
+  "title": "Asset Pricing Trees Backtest",
+  "cover": "cover",
+  "order": ["cover", "summary", "setup", "pipeline", "lookahead", "sdf-returns", "sdf-decades", "factors", "scores", "score-perf", "score-decades", "size-statement", "size-contrib", "size-cumulative", "size-sharpe", "costs", "weighting", "caveats", "next-steps"],
+  "sections": {
+    "intro": {"description": "What was tested and the headline results", "start": "cover"},
+    "method": {"description": "Data, model and how look-ahead was removed", "start": "setup"},
+    "sdf": {"description": "Out-of-sample SDF returns by decade and their factor exposure", "start": "sdf-returns"},
+    "scores": {"description": "Turning the SDF into stock scores and how they perform", "start": "scores"},
+    "size": {"description": "Where the return comes from by market cap, and what trading costs leave", "start": "size-statement"},
+    "wrap": {"description": "Limitations and next steps", "start": "caveats"}
+  },
+  "faces": {
+    "source-serif-4": {"family": "Source Serif 4", "href": "https://fonts.googleapis.com/css2?family=Source+Serif+4:wght@400..700&display=swap"},
+    "ibm-plex-sans": {"family": "IBM Plex Sans", "href": "https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap"}
+  },
+  "designSystems": []
+}

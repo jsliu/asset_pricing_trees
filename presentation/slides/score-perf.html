@@ -1,0 +1,27 @@
+<section id="score-perf" data-transition="fade" style="background:#F7F6F2; color:#1F2A3D; font-family:'IBM Plex Sans', Arial, sans-serif; padding:128px 128px 160px; display:flex; flex-direction:column; gap:32px">
+<div style="display:flex; flex-direction:column; gap:12px">
+<p style="font-size:24px; letter-spacing:3px; text-transform:uppercase; color:#B04A18; font-weight:600">Score performance</p>
+<h2 style="font-family:'Source Serif 4', Georgia, serif; font-size:60px; font-weight:600; line-height:1.1; color:#14213D">The new scores double the original's Sharpe ratio</h2>
+</div>
+<div style="display:flex; gap:56px; align-items:start">
+<img src="/_blob/5bcec7c4f5b711c7f8499d42a8732f5d" alt="Cumulative score-weighted long/short returns 1980 to 2016 for size_oriented_score, sdf_weight and norm_score" style="width:880px; height:592px; object-fit:contain">
+<div style="flex:1; display:flex; flex-direction:column; gap:20px">
+<table style="font-size:26px; color:#1F2A3D">
+<tr><th style="width:34%; text-align:left">All stocks</th><th style="width:22%; text-align:right">Size-oriented</th><th style="width:22%; text-align:right">SDF weight</th><th style="width:22%; text-align:right">Original</th></tr>
+<tr style="background:#EFECE4"><td>Return, %/yr</td><td style="text-align:right">12.0</td><td style="text-align:right">11.1</td><td style="text-align:right">6.7</td></tr>
+<tr><td>Volatility</td><td style="text-align:right">6.0</td><td style="text-align:right">5.7</td><td style="text-align:right">7.1</td></tr>
+<tr style="background:#EFECE4"><td>Sharpe</td><td style="text-align:right"><b>2.01</b></td><td style="text-align:right">1.94</td><td style="text-align:right">0.95</td></tr>
+<tr><td>Alpha, %/yr</td><td style="text-align:right">13.7</td><td style="text-align:right">12.8</td><td style="text-align:right">8.3</td></tr>
+<tr style="background:#EFECE4"><td>Alpha t</td><td style="text-align:right">10.2</td><td style="text-align:right">10.0</td><td style="text-align:right">7.7</td></tr>
+<tr><td>ICIR</td><td style="text-align:right">1.58</td><td style="text-align:right">1.56</td><td style="text-align:right">0.86</td></tr>
+<tr style="background:#EFECE4"><td>Factor R²</td><td style="text-align:right">0.26</td><td style="text-align:right">0.26</td><td style="text-align:right">0.63</td></tr>
+</table>
+<p style="font-size:24px; line-height:1.4; color:#6B7585">Score-weighted long/short (100% long, 100% short) on same-month returns, before costs.</p>
+</div>
+</div>
+<div style="position:absolute; left:128px; bottom:64px; width:1664px; display:flex; justify-content:space-between">
+<p style="font-size:24px; color:#6B7585">Asset Pricing Trees · backtest review</p>
+<p style="font-size:24px; color:#6B7585">10</p>
+</div>
+<aside>The long/short is built the same way as in backtest_analysis.py. The original score carries much more factor exposure, an R² of 0.63, which is why its raw return is lower despite a positive alpha.</aside>
+</section>

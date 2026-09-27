@@ -12,7 +12,7 @@ from AlphaWorkshop.src.main.python.alphaworkshop.functions import rank_normalise
 
 from plot_test_sr import calc_sharpe
 from prune_trees import prune, to_pandas, factor_betas, residualize_portfolios
-from build_trees_pl import prepare_data
+from build_trees import prepare_data
 from stock_portfolio_pl import get_stocks_in_node, compute_node_scores
 from src.constants import DataPaths, Parameters, Columns, Chars, Years
 from src.functions import calc_fac_ret
@@ -158,7 +158,7 @@ def _refit_period(d, refit_freq):
     return d
 
 
-def run_backtest(reg, ret_name='gross_returns', suffix='std', start_year=None, refit_freq='Y'):
+def run_backtest(reg, ret_name='gross_returns', suffix='std', start_year=None, refit_freq='Y', equal_weighted=True):
     """
     Run the tree backtest for one region; saves scores/returns to paths.output and returns (rets, stk_score).
 
@@ -172,7 +172,10 @@ def run_backtest(reg, ret_name='gross_returns', suffix='std', start_year=None, r
     firmly inside each node) and 'size_oriented_norm' (size_oriented_score rank-normalised to combine
     with factor scores).
 
-    The SDF node weights (beta) of every refit are saved to {reg}_node_betas_{suffix}.csv.
+    The SDF node weights (beta) of every refit are saved as the 'node_betas' result file (DataPaths.result_file).
+
+    equal_weighted: equal- or value-weighted market adjustment and node weights; value-weighted runs read the
+    'vw' tree files (build_trees.py with EQUAL_WEIGHTED = False).
 
     refit_freq: 'Y' (yearly), 'Q' (quarterly) or 'M' (every date) - how often the tree and final models are
     re-estimated. Between refits the last fitted models are applied to each new date.
@@ -197,7 +200,7 @@ def run_backtest(reg, ret_name='gross_returns', suffix='std', start_year=None, r
     # data = read_big_universe(ret_name=ret_name, features=features)
     factor_returns = calc_fac_ret(data[features], data[ret_name], date_col="date", score_weighted=True)
 
-    data_pl, ret_and_mcap = prepare_data(data, ret_name=ret_name, factors=None, equal_weighted=True)
+    data_pl, ret_and_mcap = prepare_data(data, ret_name=ret_name, factors=None, equal_weighted=equal_weighted)
 
     comb_pl = build_comb_pl(
         data=data_pl,
@@ -212,9 +215,7 @@ def run_backtest(reg, ret_name='gross_returns', suffix='std', start_year=None, r
     all_dates = set()
 
     for tree_file_path in paths.processed_data.iterdir():
-        if tree_file_path.suffix != '.parquet':
-            continue
-        if reg not in tree_file_path.name:
+        if not paths.is_tree_file(tree_file_path, reg, None if equal_weighted else 'vw'):
             continue
 
         # raw portfolio returns; they are residualised on the factors at each refit using training rows only
@@ -336,15 +337,15 @@ def run_backtest(reg, ret_name='gross_returns', suffix='std', start_year=None, r
 
 
     stk_score = pl.concat(stock_scores)
-    stk_score.write_csv(paths.output / f'{reg}_score_{suffix}.csv')
-    pd.concat(refit_betas).to_csv(paths.output / f'{reg}_node_betas_{suffix}.csv', index=False)
+    stk_score.write_csv(paths.result_file('score', reg, suffix))
+    pd.concat(refit_betas).to_csv(paths.result_file('node_betas', reg, suffix), index=False)
 
     rets = rets.dropna()
     rets.cumsum().plot()
     plt.title(f"{reg} cumulative returns")
     plt.show()
 
-    rets.to_csv(paths.output / f'{reg}_ret_{suffix}.csv')
+    rets.to_csv(paths.result_file('ret', reg, suffix))
 
     return rets, stk_score
 
@@ -353,14 +354,17 @@ def run_backtest(reg, ret_name='gross_returns', suffix='std', start_year=None, r
 # Running backtest
 if __name__ == '__main__':
     sns.set_theme()
-    suffix = 'std'
+    EQUAL_WEIGHTED = False
+    suffix = 'std' if EQUAL_WEIGHTED else 'vw'
     # ret_name = 'Universe Returns'
     # ret_name = 'gross_returns'
     ret_name = 'ret'
     # regions = ['US', 'EU', 'UK', 'JP', 'AP', 'EM']
     # regions = ['GL', ]
-    regions = ['full', ]
+    # regions = ['full', ]
+    # regions = ['largecap', 'largecap001']
+    regions = ['largecap', ]
     for reg in regions:
-        run_backtest(reg, ret_name=ret_name, suffix=suffix, start_year=1980, refit_freq='Y')
+        run_backtest(reg, ret_name=ret_name, suffix=suffix, start_year=1980, refit_freq='Y', equal_weighted=EQUAL_WEIGHTED)
 
 # %%

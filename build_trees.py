@@ -40,6 +40,7 @@ def run_pipeline(
     data: pl.DataFrame,
     merged_df: pl.DataFrame,
     exclude_chars: list,
+    variant: str = None,
 ):
     paths = DataPaths()
 
@@ -108,9 +109,7 @@ def run_pipeline(
         # --------------------------------------------------
         # 7. Save
         # --------------------------------------------------
-        portfolio.write_parquet(
-            paths.processed_data / f"{reg}_{output_file_name}.parquet"
-        )
+        portfolio.write_parquet(paths.tree_file(reg, output_file_name, variant))
 
 
 # %%
@@ -124,7 +123,10 @@ if __name__ == '__main__':
     ret_name = "ret"
     # regions = ['US', 'UK', 'EU', 'AP', 'JP', 'EM']
     # regions = ['US', ]
-    regions = ['full', ]
+    # regions = ['full', ]
+    # regions = ['largecap', 'largecap001']
+    regions = ['largecap', ]
+    EQUAL_WEIGHTED = False     # value-weighted trees are saved with the 'vw' variant in their name
     for reg in regions:
         logging.info(f"Loading base characteristics")
         print(f"Loading base characteristics in {reg}")
@@ -146,9 +148,9 @@ if __name__ == '__main__':
         # data = read_db_data(region_=reg, features=features, ret_name=ret_name, data_saved=data_saved)
         # data = read_big_universe(ret_name=ret_name, features=features, features_direction=[1, -1, -1, 1, 1, -1, -1, -1, 1, -1])
 
-        data_pl, ret_and_mcap = prepare_data(data, ret_name=ret_name, factors=None, equal_weighted=True)
+        data_pl, ret_and_mcap = prepare_data(data, ret_name=ret_name, factors=None, equal_weighted=EQUAL_WEIGHTED)
         logging.info(f"Start building the trees in {reg} given the combinations of features")
         print(f"Start building the trees in {reg} given the combinations of features")
         # if alwasy use lme as a feature, exlucde it firslty
-        run_pipeline(reg, data_pl, ret_and_mcap, exclude_chars=[chars.returns, chars.lme])
+        run_pipeline(reg, data_pl, ret_and_mcap, exclude_chars=[chars.returns, chars.lme], variant=None if EQUAL_WEIGHTED else 'vw')
 # %%

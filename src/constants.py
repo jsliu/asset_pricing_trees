@@ -170,6 +170,35 @@ class DataPaths:
     model_dumps: Path = Path('model_dumps')
     processed_data: Path = Path('processed_data')
     model_suffix: str = 'model.pkl'
+    # universes read from the characteristic files: their outputs carry the universe as a suffix
+    char_universes: ClassVar[tuple] = ('full', 'largecap', 'largecap001')
+
+    def _name(self, stem: str, reg: str) -> str:
+        """Characteristic-file universes: '<stem>_<reg>'; other regions (company data): '<reg>_<stem>'."""
+        return f"{stem}{self.sep}{reg}" if reg in self.char_universes else f"{reg}{self.sep}{stem}"
+
+    def tree_file(self, reg: str, comb: str, variant: str = None) -> Path:
+        """
+        Tree portfolio file of a feature combination, e.g. processed_data/lme_ac_beme_largecap.parquet;
+        a variant (e.g. 'vw' for value-weighted trees) is appended: lme_ac_beme_largecap_vw.parquet.
+        """
+        name = self._name(comb, reg) + (f"{self.sep}{variant}" if variant else "")
+        return self.processed_data / f"{name}.parquet"
+
+    def is_tree_file(self, path: Path, reg: str, variant: str = None) -> bool:
+        """Whether path is one of reg's tree files of that variant (exact match, so 'largecap' does not pick up
+        'largecap001' or 'largecap_vw')."""
+        if path.suffix != '.parquet':
+            return False
+        end = f"{self.sep}{variant}" if variant else ""
+        if reg in self.char_universes:
+            return path.stem.endswith(f"{self.sep}{reg}{end}")
+        return path.stem.startswith(f"{reg}{self.sep}") and path.stem.endswith(end)
+
+    def result_file(self, kind: str, reg: str, suffix: str, ext: str = 'csv') -> Path:
+        """Backtest output, e.g. result/ret_std_largecap.csv (company regions: result/GL_ret_std.csv); ext=None for a folder."""
+        name = self._name(f"{kind}{self.sep}{suffix}", reg) if reg in self.char_universes else f"{reg}{self.sep}{kind}{self.sep}{suffix}"
+        return self.output / (f"{name}.{ext}" if ext else name)
 
     def merge_tuple(self, input_tuple: tuple[str, str]) -> str:
         return self.sep.join(input_tuple)

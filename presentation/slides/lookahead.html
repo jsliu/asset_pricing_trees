@@ -1,0 +1,33 @@
+<section id="lookahead" data-transition="fade" style="background:#F7F6F2; color:#1F2A3D; font-family:'IBM Plex Sans', Arial, sans-serif; padding:128px 128px 160px; display:flex; flex-direction:column; gap:40px">
+<div style="display:flex; flex-direction:column; gap:12px">
+<p style="font-size:24px; letter-spacing:3px; text-transform:uppercase; color:#B04A18; font-weight:600">Look-ahead</p>
+<h2 style="font-family:'Source Serif 4', Georgia, serif; font-size:60px; font-weight:600; line-height:1.1; color:#14213D">Two leaks removed from the original backtest</h2>
+</div>
+<div style="display:grid; grid-template-columns:1fr 1fr; gap:64px">
+<div style="display:flex; flex-direction:column; gap:24px">
+<div style="background:#FDFCF9; border:1px solid #D9D5CA; border-radius:16px; padding:32px; display:flex; flex-direction:column; gap:10px">
+<h3 style="font-size:30px; font-weight:600; color:#14213D">Test month in the training window</h3>
+<p style="font-size:26px; line-height:1.4; color:#3E4A5C">The model was fitted on months up to and including month d, then scored month d. Now it trains on months before d only.</p>
+</div>
+<div style="background:#FDFCF9; border:1px solid #D9D5CA; border-radius:16px; padding:32px; display:flex; flex-direction:column; gap:10px">
+<h3 style="font-size:30px; font-weight:600; color:#14213D">Full-sample factor betas</h3>
+<p style="font-size:26px; line-height:1.4; color:#3E4A5C">Tree returns were residualised with betas from 1963–2016. Now the betas come from the training window and are re-estimated at each refit.</p>
+</div>
+</div>
+<div style="display:flex; flex-direction:column; gap:24px">
+<h3 style="font-size:30px; font-weight:600; color:#14213D">Leak test: do earlier results move when later data changes?</h3>
+<table style="font-size:26px; color:#1F2A3D">
+<tr><th style="width:55%; text-align:left">Version</th><th style="width:45%; text-align:left">Earlier results change?</th></tr>
+<tr style="background:#EFECE4"><td>Original code</td><td>Yes, up to 2.1% a month</td></tr>
+<tr><td>Fixed, monthly refits</td><td>No</td></tr>
+<tr style="background:#EFECE4"><td>Fixed, yearly refits</td><td>No</td></tr>
+</table>
+<p style="font-size:24px; line-height:1.4; color:#6B7585">Synthetic test: every tree return from July 2006 on is perturbed, and all outputs dated earlier are compared.</p>
+</div>
+</div>
+<div style="position:absolute; left:128px; bottom:64px; width:1664px; display:flex; justify-content:space-between">
+<p style="font-size:24px; color:#6B7585">Asset Pricing Trees · backtest review</p>
+<p style="font-size:24px; color:#6B7585">5</p>
+</div>
+<aside>Both leaks biased results upwards. After the fixes, changing any future data leaves every earlier return and score exactly as it was. The residuals also now keep each portfolio's alpha: the intercept is used when estimating the betas but is not subtracted.</aside>
+</section>

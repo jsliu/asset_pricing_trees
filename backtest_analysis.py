@@ -31,7 +31,7 @@ for reg in regions:
     data.loc[:, 'lme'] = np.log(data[Columns.size_col])
     data = data.swaplevel(0, 1)
 
-    ai_pnl = pd.read_csv(paths.output / f"{reg}_ret_{suffix}.csv", index_col=0)[['Return']]
+    ai_pnl = pd.read_csv(paths.result_file('ret', reg, suffix), index_col=0)[['Return']]
     ai_pnl.index.name = 'Date'
     ei_pnl = calc_fac_ret(data[features].mean(axis=1), data[ret_name], date_col='date', score_weighted=True)
     pnl = pd.concat([ai_pnl, ei_pnl], axis=1, sort=True)
@@ -87,7 +87,7 @@ for reg in regions:
     stock_info = stock_info.swaplevel(0, 1)
 
     # tree score: SDF node weights tilted towards the stocks most firmly inside each node, rank-normalised per date
-    ai_score = pd.read_csv(paths.output / f"{reg}_score_{suffix}.csv").set_index(['date', 'permno'])['size_oriented_norm']
+    ai_score = pd.read_csv(paths.result_file('score', reg, suffix)).set_index(['date', 'permno'])['size_oriented_norm']
     ai_score.name = 'Tree'
     ei_score = data[features]
 

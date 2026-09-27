@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 import polars as pl
 from tqdm import tqdm
-from build_trees_pl import prepare_data
+from build_trees import prepare_data
 from src.utils import tree_grows_pl
 from src.constants import Columns, Chars
 from src.preprocessing import read_ei_data, read_big_universe
