@@ -8,13 +8,13 @@ hedge_analysis.py:
 Stocks without a return in a month are sold. Weight drift between rebalances is ignored.
 
 Run backtest_report.py for the same universe first, then from the project root:
-    python turnover_controls.py <universe> [<suffix>]      e.g. python turnover_controls.py largecap
+    python turnover_controls.py [<universe>] [<suffix>] [--region GL]      e.g. python turnover_controls.py largecap
 Tables are printed and saved to the report folder (turnover_controls_*.csv).
 """
 import numpy as np
 import pandas as pd
 
-from backtest_report import REG, SUFFIX, EQUAL_WEIGHTED, make_periods
+from backtest_report import REGION, UNIVERSE, SUFFIX, LABEL, EQUAL_WEIGHTED, make_periods
 from hedge_analysis import build_positions, net_stats
 
 LAMBDAS = (1.0, 0.5, 0.33, 0.2)
@@ -54,7 +54,7 @@ def evaluate(sdf_leg, hedge_leg, sdf_adj, ew_adj, dates, periods, hedged):
 # %%
 if __name__ == '__main__':
     pd.set_option('display.width', 250)
-    p = build_positions(REG, SUFFIX, EQUAL_WEIGHTED)
+    p = build_positions(REGION, UNIVERSE, SUFFIX, EQUAL_WEIGHTED)
     dates = np.array(p['dates'])
     stocks = p['sdf_adj'].index.get_level_values('permno').unique().union(p['hedge_w'].index.get_level_values('permno').unique())
     held = to_grid(p['sdf_adj'].notna().astype(float), dates, stocks)
@@ -84,6 +84,6 @@ if __name__ == '__main__':
     decades.columns = [f'{c} @10bps' for c in decades.columns]
     summary = full.join(decades)
     summary.to_csv(p['out_dir'] / 'turnover_controls_summary.csv')
-    print(f'\n==== {REG} ({SUFFIX}): turnover controls, full sample; last columns Sharpe after 10 bps by period ====')
+    print(f'\n==== {LABEL} ({SUFFIX}): turnover controls, full sample; last columns Sharpe after 10 bps by period ====')
     print(summary.round(2).to_string())
     print(f'\nSaved to {p["out_dir"]}')

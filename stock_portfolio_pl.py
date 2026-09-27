@@ -4,7 +4,7 @@ import pandas as pd
 import polars as pl
 from tqdm import tqdm
 from build_trees import prepare_data
-from src.utils import tree_grows_pl
+from src.utils import tree_grows
 from src.constants import Columns, Chars
 from src.preprocessing import read_ei_data, read_big_universe
 
@@ -97,7 +97,7 @@ def get_stocks_in_node(
     # --------------------------------------------------
     # 2. Build tree nodes (same as tree_portfolio)
     # --------------------------------------------------
-    tree_df = tree_grows_pl(
+    tree_df = tree_grows(
         comb_pl.select(
             [Columns.date_col] +
             [

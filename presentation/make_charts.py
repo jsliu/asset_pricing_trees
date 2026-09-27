@@ -1,6 +1,6 @@
 """
 Charts for the backtest presentation, from result/ and result/report_full_std/.
-Run backtest_report.py first, then from the project root: python presentation/make_charts.py [universe]
+Run backtest_report.py first, then from the project root: python presentation/make_charts.py [<universe>] [<suffix>] [--region GL]
 PNGs are written to presentation/charts/; make_deck.py draws the same charts into the PDF.
 """
 import sys
@@ -16,9 +16,9 @@ REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
 OUT = Path(__file__).resolve().parent / "charts"
 
-from backtest_report import REG, SUFFIX, RET_NAME, long_short   # noqa: E402
+from backtest_report import REGION, UNIVERSE, SUFFIX, RET_NAME, EQUAL_WEIGHTED, long_short   # noqa: E402
 from src.constants import Chars, DataPaths                      # noqa: E402
-from src.preprocessing import read_char_data                    # noqa: E402
+from src.preprocessing import read_backtest_data                # noqa: E402
 
 SURFACE = "#f7f6f2"
 INK, INK2, GRID = "#1f2a3d", "#556070", "#dcdad2"
@@ -44,12 +44,12 @@ def to_dt(idx):
 def load_inputs():
     """Everything the charts and the deck need, from the backtest outputs and the report tables."""
     paths = DataPaths()
-    rep = paths.result_file("report", REG, SUFFIX, ext=None)
-    rets = pd.read_csv(paths.result_file("ret", REG, SUFFIX), index_col=0)
-    scores = pd.read_csv(paths.result_file("score", REG, SUFFIX)).set_index(["date", "permno"])
+    rep = paths.result_file("report", SUFFIX, REGION, UNIVERSE, ext=None)
+    rets = pd.read_csv(paths.result_file("ret", SUFFIX, REGION, UNIVERSE), index_col=0)
+    scores = pd.read_csv(paths.result_file("score", SUFFIX, REGION, UNIVERSE)).set_index(["date", "permno"])
 
     features = list(Chars().__dict__.values())[:-2]
-    data = read_char_data(features, universe=None if REG == "full" else REG, ret_name=RET_NAME).swaplevel(0, 1).sort_index()
+    data = read_backtest_data(features, RET_NAME, region=REGION, universe=UNIVERSE).swaplevel(0, 1).sort_index()
     ret = data[RET_NAME][data.index.get_level_values("date") >= rets.index.min()]
     ls = pd.DataFrame({c: long_short(scores[c], ret) for c in SCORES if c in scores})
 
@@ -66,13 +66,13 @@ def load_inputs():
         "contrib_monthly": pd.read_csv(rep / "sdf_return_by_size_monthly.csv", index_col=0),
         "exposure": pd.read_csv(rep / "sdf_weight_by_size.csv", index_col=0),
         "buckets": list(contrib.index.get_level_values("size bucket").unique()),
-        "node_betas": pd.read_csv(paths.result_file("node_betas", REG, SUFFIX)),
+        "node_betas": pd.read_csv(paths.result_file("node_betas", SUFFIX, REGION, UNIVERSE)),
         # optional: from hedge_analysis.py and turnover_controls.py
         "hedge": (pd.read_csv(rep / "hedge_costs_by_period.csv").set_index(["portfolio", "period"])
                   if (rep / "hedge_costs_by_period.csv").exists() else None),
         "controls": (pd.read_csv(rep / "turnover_controls_summary.csv").set_index(["portfolio", "control"])
                      if (rep / "turnover_controls_summary.csv").exists() else None),
-        "n_tree_files": sum(paths.is_tree_file(p, REG) for p in paths.processed_data.iterdir()),
+        "n_tree_files": len(paths.tree_files(REGION, UNIVERSE, None if EQUAL_WEIGHTED else "vw")),
         "stocks_with_return": ret.groupby("date").size().median(),
         "universe_size": scores.groupby("date").size().median(),
         "n_features": len(features),

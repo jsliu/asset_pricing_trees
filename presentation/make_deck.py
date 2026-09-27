@@ -1,8 +1,8 @@
 """
 Builds the backtest presentation as a PDF (16:9 pages) from the backtest outputs and the report tables.
 Run backtest_report.py first, then from the project root:
-    python presentation/make_deck.py [universe] [--png]
-        -> presentation/backtest_{SUFFIX}_{universe}.pdf (universe defaults to 'full');
+    python presentation/make_deck.py [<universe>] [<suffix>] [--region GL] [--png]
+        -> presentation/[<region>_]backtest_<suffix>[_<universe>].pdf (universe defaults to 'full');
            --png also writes one PNG per page to presentation/deck_preview/
 Numbers, tables and the descriptive sentences are all computed from the current results.
 """
@@ -18,7 +18,7 @@ from matplotlib.patches import Rectangle
 
 import make_charts as mc
 from backtest import MIN_NODE_SIZE
-from backtest_report import EQUAL_WEIGHTED, N_SIZE_BUCKETS, REG, SUFFIX
+from backtest_report import EQUAL_WEIGHTED, N_SIZE_BUCKETS, REGION, UNIVERSE, LABEL, SUFFIX
 from src.constants import Chars, DataPaths, Parameters
 
 W, H, M = 16, 9, 0.9                     # page size and side margin, inches
@@ -145,7 +145,7 @@ def build(d, path, preview_dir=None):
     fig.text(M / W, 8.1 / H, f"BACKTEST REVIEW · {date.today():%B %Y}".upper(), fontsize=13, weight="bold", color=ACCENT_LIGHT, va="top")
     fig.text(M / W, 5.6 / H, "Asset Pricing Trees", fontsize=64, family=SERIF, weight="bold", color=BG, va="top")
     fig.text(M / W, 4.2 / H, f"Out-of-sample SDF and stock scores, {y0}–{y1}", fontsize=26, color=ON_DARK, va="top")
-    fig.text(M / W, 1.0 / H, f"Universe: {REG} · {weighting}-weighted trees · {len(refits)} refits · {len(rets)} months out of sample",
+    fig.text(M / W, 1.0 / H, f"{LABEL} · {weighting}-weighted trees · {len(refits)} refits · {len(rets)} months out of sample",
              fontsize=15, color="#9fb0c6")
     deck.save(fig)
 
@@ -172,7 +172,8 @@ def build(d, path, preview_dir=None):
     fig = deck.slide("Setup", "Data and model")
     col_w = (W - 2 * M - 0.8) / 2
     data_items = [
-        f"Characteristic files in characteristics/ ({REG} universe); out of sample {y0}–{y1}",
+        (f"Characteristic files in characteristics/ ({UNIVERSE} universe)" if UNIVERSE else f"Company factor data, region {REGION}")
+        + f"; out of sample {y0}–{y1}",
         f"{len(features)} characteristics plus size: {', '.join(features)}",
         f"Median {d['stocks_with_return']:,.0f} stocks a month with returns, {d['universe_size']:,.0f} with every characteristic",
         f"Stock returns net of the {weighting}-weighted market; zero market-cap rows dropped",
@@ -433,7 +434,7 @@ def build(d, path, preview_dir=None):
         ("Alpha benchmark", "The characteristic factors weight all stocks, so alphas of large-cap portfolios against them can overstate."),
         ("Factor normaliser", "Factor returns and the hedge depend on rank_normalise; results from a stand-in version will differ slightly."),
         ("Selection effect", "Tree portfolios are filtered by their missing-data rate over the full sample."),
-        ("One sample", f"The {REG} universe, {y0}–{y1}, one configuration; nothing tested beyond it."),
+        ("One sample", f"{LABEL}, {y0}–{y1}, one configuration; nothing tested beyond it."),
     ]
     cw = (W - 2 * M - 2 * 0.3) / 3
     for i, (head, body) in enumerate(items):
@@ -447,7 +448,7 @@ def build(d, path, preview_dir=None):
 
 
 if __name__ == "__main__":
-    out = mc.REPO / "presentation" / DataPaths().result_file("backtest", REG, SUFFIX, "pdf").name
+    out = mc.REPO / "presentation" / DataPaths().result_file("backtest", SUFFIX, REGION, UNIVERSE, "pdf").name
     preview = None
     if "--png" in sys.argv:
         preview = mc.REPO / "presentation" / "deck_preview"

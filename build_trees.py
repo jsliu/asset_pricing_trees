@@ -2,15 +2,16 @@
 import numpy as np
 import pandas as pd
 import logging
+from itertools import product
 import polars as pl
 from tqdm import tqdm
 # from datetime import date
 # from itertools import combinations
 
-from src.utils import build_tree_portfolio, build_comb_pl
+from src.utils import build_tree_portfolio, build_comb
 from src.constants import Columns, Chars, DataPaths, Parameters
 from src.functions import get_residuals
-from src.preprocessing import cap_weight, read_ei_data, read_db_data, read_big_universe, read_all_data, read_char_data
+from src.preprocessing import cap_weight, read_db_data, read_big_universe, read_backtest_data
 
 
 
@@ -36,10 +37,11 @@ def prepare_data(data, ret_name, factors=None, equal_weighted=True):
     return data_pl, merged_df
 
 def run_pipeline(
-    reg: str,
     data: pl.DataFrame,
     merged_df: pl.DataFrame,
     exclude_chars: list,
+    region: str = None,
+    universe: str = None,
     variant: str = None,
 ):
     paths = DataPaths()
@@ -61,7 +63,7 @@ def run_pipeline(
     # --------------------------------------------------
     # 3. Build comb_pl ONCE (KEY IMPROVEMENT)
     # --------------------------------------------------
-    full_comb_pl = build_comb_pl(
+    full_comb_pl = build_comb(
         data=data,
         merged_df=merged_df,
         features=all_features,
@@ -70,7 +72,7 @@ def run_pipeline(
     # --------------------------------------------------
     # 4. Loop through combinations (lightweight now)
     # --------------------------------------------------
-    for char_comb in tqdm(char_combs, desc=f"{reg} pipeline"):
+    for char_comb in tqdm(char_combs, desc=f"{paths.label(region, universe)} pipeline"):
 
         feature_sequence = list(char_comb)
         output_file_name = f"{paths.sep}".join(feature_sequence)
@@ -109,7 +111,7 @@ def run_pipeline(
         # --------------------------------------------------
         # 7. Save
         # --------------------------------------------------
-        portfolio.write_parquet(paths.tree_file(reg, output_file_name, variant))
+        portfolio.write_parquet(paths.tree_file(output_file_name, region, universe, variant))
 
 
 # %%
@@ -121,36 +123,26 @@ if __name__ == '__main__':
     # ret_name = "Universe Returns"
     # ret_name = "gross_returns"
     ret_name = "ret"
-    # regions = ['US', 'UK', 'EU', 'AP', 'JP', 'EM']
-    # regions = ['US', ]
-    # regions = ['full', ]
-    # regions = ['largecap', 'largecap001']
-    regions = ['largecap', ]
+    paths = DataPaths()
+    # company data: regions = ['GL', 'US', ...] (or 'ALL') with universes = [None]
+    # characteristic files: regions = [None] with universes = ['full', 'largecap', 'largecap001']
+    regions = [None]
+    universes = ['largecap', ]
     EQUAL_WEIGHTED = True      # False: value-weighted trees are saved with the 'vw' variant in their name
-    for reg in regions:
+    for region, universe in product(regions, universes):
+        label = paths.label(region, universe)
         logging.info(f"Loading base characteristics")
-        print(f"Loading base characteristics in {reg}")
+        print(f"Loading base characteristics in {label}")
 
         features = list(chars.__dict__.values())[:-2]
-        if reg == "ALL":
-            data, CHARAS_LIST, _ = read_all_data(target=ret_name, ei_factors=features)
-            data1 = []
-            data2 = {}
-            for reg2 in  ['GL', 'US', 'UK', 'EU', 'AP', 'JP', 'EM']:
-                data2[reg2], _, CHARAS_LIST, _, _ = read_ei_data(region_=reg2, target=ret_name, ei_factors=features)
-                data1.append(data2[reg2])
-            data = pd.concat(data1)
-            data = data.loc[~data.index.duplicated()]
-        elif reg in ("full", "largecap", "largecap001"):
-            data = read_char_data(features, universe=None if reg == "full" else reg, ret_name=ret_name)
-        else:
-            data, _, CHARAS_LIST, _, _ = read_ei_data(region_=reg, target=ret_name, ei_factors=features)
-        # data = read_db_data(region_=reg, features=features, ret_name=ret_name, data_saved=data_saved)
+        data = read_backtest_data(features, ret_name, region=region, universe=universe)
+        # data = read_db_data(region_=region, features=features, ret_name=ret_name, data_saved=data_saved)
         # data = read_big_universe(ret_name=ret_name, features=features, features_direction=[1, -1, -1, 1, 1, -1, -1, -1, 1, -1])
 
         data_pl, ret_and_mcap = prepare_data(data, ret_name=ret_name, factors=None, equal_weighted=EQUAL_WEIGHTED)
-        logging.info(f"Start building the trees in {reg} given the combinations of features")
-        print(f"Start building the trees in {reg} given the combinations of features")
+        logging.info(f"Start building the trees in {label} given the combinations of features")
+        print(f"Start building the trees in {label} given the combinations of features")
         # if alwasy use lme as a feature, exlucde it firslty
-        run_pipeline(reg, data_pl, ret_and_mcap, exclude_chars=[chars.returns, chars.lme], variant=None if EQUAL_WEIGHTED else 'vw')
+        run_pipeline(data_pl, ret_and_mcap, exclude_chars=[chars.returns, chars.lme], region=region, universe=universe,
+                     variant=None if EQUAL_WEIGHTED else 'vw')
 # %%

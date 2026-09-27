@@ -5,6 +5,7 @@ import polars as pl
 import seaborn as sns
 import matplotlib.pyplot as plt
 import statsmodels.api as sm
+from itertools import product
 from tqdm import tqdm
 from joblib import Parallel, delayed
 from scipy.stats import norm
@@ -16,8 +17,8 @@ from build_trees import prepare_data
 from stock_portfolio_pl import get_stocks_in_node, compute_node_scores
 from src.constants import DataPaths, Parameters, Columns, Chars, Years
 from src.functions import calc_fac_ret
-from src.preprocessing import read_ei_data, read_all_data, read_char_data
-from src.utils import build_comb_pl
+from src.preprocessing import read_backtest_data
+from src.utils import build_comb
 
 
 def rank_normalize(x):
@@ -158,9 +159,11 @@ def _refit_period(d, refit_freq):
     return d
 
 
-def run_backtest(reg, ret_name='gross_returns', suffix='std', start_year=None, refit_freq='Y', equal_weighted=True):
+def run_backtest(region=None, universe=None, ret_name='gross_returns', suffix='std', start_year=None, refit_freq='Y',
+                 equal_weighted=True):
     """
-    Run the tree backtest for one region; saves scores/returns to paths.output and returns (rets, stk_score).
+    Run the tree backtest for a region of the company data (e.g. 'GL') or a universe of the characteristic files
+    (e.g. 'largecap'); saves scores/returns to paths.output and returns (rets, stk_score).
 
     rets has two columns, both the SDF (pruned weights) applied to date d's portfolio returns:
     'Return' uses the factor-residualised returns the model is fitted on, 'Return_mkt_adj' the
@@ -187,22 +190,18 @@ def run_backtest(reg, ret_name='gross_returns', suffix='std', start_year=None, r
     paths = DataPaths()
     start_year = years.min_year if start_year is None else start_year
 
-    print(f"Loading base characteristics in {reg}")
+    label = paths.label(region, universe)
+    print(f"Loading base characteristics in {label}")
 
     features = list(chars.__dict__.values())[:-2]
-    if reg == "ALL":
-        data, CHARAS_LIST, _ = read_all_data(target=ret_name, ei_factors=features)
-    elif reg in ("full", "largecap", "largecap001"):
-        data = read_char_data(features, universe=None if reg == "full" else reg, ret_name=ret_name)
-    else:
-        data, _, CHARAS_LIST, _, _ = read_ei_data(region_=reg, target=ret_name, ei_factors=features)
+    data = read_backtest_data(features, ret_name, region=region, universe=universe)
     # data = read_db_data(region_=reg, features=features, ret_name=Columns.returns_col, data_saved=data_saved)
     # data = read_big_universe(ret_name=ret_name, features=features)
     factor_returns = calc_fac_ret(data[features], data[ret_name], date_col="date", score_weighted=True)
 
     data_pl, ret_and_mcap = prepare_data(data, ret_name=ret_name, factors=None, equal_weighted=equal_weighted)
 
-    comb_pl = build_comb_pl(
+    comb_pl = build_comb(
         data=data_pl,
         merged_df=ret_and_mcap,
         features=features+['lme'],
@@ -214,9 +213,7 @@ def run_backtest(reg, ret_name='gross_returns', suffix='std', start_year=None, r
     tree_data = {}
     all_dates = set()
 
-    for tree_file_path in paths.processed_data.iterdir():
-        if not paths.is_tree_file(tree_file_path, reg, None if equal_weighted else 'vw'):
-            continue
+    for tree_file_path in paths.tree_files(region, universe, None if equal_weighted else 'vw'):
 
         # raw portfolio returns; they are residualised on the factors at each refit using training rows only
         tree_pd = to_pandas(tree_file_path)
@@ -259,7 +256,7 @@ def run_backtest(reg, ret_name='gross_returns', suffix='std', start_year=None, r
     parallel = Parallel(n_jobs=-1)
     fitted_period = None
 
-    for d in tqdm(dates, desc=f"{reg} Backtest", unit=Columns.date_col):
+    for d in tqdm(dates, desc=f"{label} Backtest", unit=Columns.date_col):
 
         if d // 10000 < start_year:
         # if d < 20070330:
@@ -337,15 +334,15 @@ def run_backtest(reg, ret_name='gross_returns', suffix='std', start_year=None, r
 
 
     stk_score = pl.concat(stock_scores)
-    stk_score.write_csv(paths.result_file('score', reg, suffix))
-    pd.concat(refit_betas).to_csv(paths.result_file('node_betas', reg, suffix), index=False)
+    stk_score.write_csv(paths.result_file('score', suffix, region, universe))
+    pd.concat(refit_betas).to_csv(paths.result_file('node_betas', suffix, region, universe), index=False)
 
     rets = rets.dropna()
     rets.cumsum().plot()
-    plt.title(f"{reg} cumulative returns")
+    plt.title(f"{label} cumulative returns")
     plt.show()
 
-    rets.to_csv(paths.result_file('ret', reg, suffix))
+    rets.to_csv(paths.result_file('ret', suffix, region, universe))
 
     return rets, stk_score
 
@@ -359,12 +356,12 @@ if __name__ == '__main__':
     # ret_name = 'Universe Returns'
     # ret_name = 'gross_returns'
     ret_name = 'ret'
-    # regions = ['US', 'EU', 'UK', 'JP', 'AP', 'EM']
-    # regions = ['GL', ]
-    # regions = ['full', ]
-    # regions = ['largecap', 'largecap001']
-    regions = ['largecap', ]
-    for reg in regions:
-        run_backtest(reg, ret_name=ret_name, suffix=suffix, start_year=1980, refit_freq='Y', equal_weighted=EQUAL_WEIGHTED)
+    # company data: regions = ['GL', 'US', ...] with universes = [None] (and ret_name = 'gross_returns')
+    # characteristic files: regions = [None] with universes = ['full', 'largecap', 'largecap001']
+    regions = [None]
+    universes = ['largecap', ]
+    for region, universe in product(regions, universes):
+        run_backtest(region, universe, ret_name=ret_name, suffix=suffix, start_year=1980, refit_freq='Y',
+                     equal_weighted=EQUAL_WEIGHTED)
 
 # %%

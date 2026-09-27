@@ -171,10 +171,7 @@ if __name__ == '__main__':
         factor_returns = calc_fac_ret(data[features], data[ret_name], date_col="date", score_weighted=True)
 
         print(f"Pruning tree in {reg}")
-        files = list(paths.processed_data.iterdir())
-        for tree_file_path in tqdm(files):
-            if not paths.is_tree_file(tree_file_path, reg):
-                continue
+        for tree_file_path in tqdm(paths.tree_files(region=reg)):
 
             node_returns = to_pandas(tree_file_path)
             node_resid = residualize_portfolios(tree_ret=node_returns, factor_ret=factor_returns)

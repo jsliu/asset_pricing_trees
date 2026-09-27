@@ -83,8 +83,8 @@ def recursive_tree_grows(input_df: pd.DataFrame, n_split: int, col_idx: int = 0)
     return pd.concat(grouped_dfs, axis=0)
 
 
-# non recursive version
-def tree_grows(input_df: pd.DataFrame, n_split: int):
+# non recursive version (pandas; the polars version is tree_grows below)
+def tree_grows_pd(input_df: pd.DataFrame, n_split: int):
     df = input_df.copy()
     original_cols = list(df.columns)
 
@@ -139,7 +139,7 @@ def tree_portfolio(
         # 1. Build tree nodes (hierarchical buckets)
         # --------------------------------------------------
 
-        tree_df = tree_grows_pl(
+        tree_df = tree_grows(
             comb_pl.select(
                 [Columns.date_col] + 
                 [
@@ -157,7 +157,7 @@ def tree_portfolio(
         # 2. Prepare aggregation expressions
         # --------------------------------------------------
         agg_exprs = []
-        for f in set(feature_sequence):
+        for f in dict.fromkeys(feature_sequence):      # unique, in a fixed order (a set's order varies by run)
             agg_exprs.append(
                 pl.col(f).min().alias(f"{f}{Columns.col_sep}min")
             )
@@ -236,7 +236,7 @@ def quantile_bucket(expr: pl.Expr, n_split: int, groups) -> pl.Expr:
     )
 
 
-def tree_grows_pl(
+def tree_grows(
     df: pl.DataFrame,
     n_split: int,
     date_col: str,
@@ -276,7 +276,7 @@ def tree_grows_pl(
     return out
 
 
-def build_comb_pl(data, merged_df, features):
+def build_comb(data, merged_df, features):
 
     # all_features = list({
     #     f

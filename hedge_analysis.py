@@ -11,16 +11,16 @@ next refit). This script
     3. measures turnover and the net return after trading costs, for the SDF alone and hedged, per period.
 
 Run backtest_report.py for the same universe first (it saves the factor returns), then from the project root:
-    python hedge_analysis.py <universe> [<suffix>]      e.g. python hedge_analysis.py largecap
+    python hedge_analysis.py [<universe>] [<suffix>] [--region GL]      e.g. python hedge_analysis.py largecap
 Tables are printed and saved to the report folder (e.g. result/report_std_largecap/hedge_*.csv).
 """
 import numpy as np
 import pandas as pd
 
-from backtest_report import REG, SUFFIX, RET_NAME, EQUAL_WEIGHTED, make_periods
+from backtest_report import REGION, UNIVERSE, SUFFIX, LABEL, RET_NAME, EQUAL_WEIGHTED, make_periods
 from src.constants import Chars, DataPaths
 from src.functions import _get_weights
-from src.preprocessing import read_char_data
+from src.preprocessing import read_backtest_data
 
 COSTS_BPS = (5, 10, 25)          # one-way cost per unit traded
 
@@ -70,21 +70,21 @@ def net_stats(ret, tr, gross, periods):
     return pd.DataFrame(rows).T
 
 
-def build_positions(reg, suffix, equal_weighted):
+def build_positions(region, universe, suffix, equal_weighted):
     """
     Everything needed to hold the SDF alone or hedged: the SDF stock weights, the stock weights of the factor
     hedge (sdf position minus hedge = the hedged portfolio), the stock returns net of the markets they are
     measured against, the hedge ratios and the reproduction checks.
     """
     paths = DataPaths()
-    out_dir = paths.result_file('report', reg, suffix, ext=None)
-    rets = pd.read_csv(paths.result_file('ret', reg, suffix), index_col=0)
-    sdf_w = pd.read_csv(paths.result_file('score', reg, suffix), usecols=['date', 'permno', 'sdf_weight']).set_index(['date', 'permno'])['sdf_weight']
-    refits = pd.read_csv(paths.result_file('node_betas', reg, suffix))['refit_date'].unique()
+    out_dir = paths.result_file('report', suffix, region, universe, ext=None)
+    rets = pd.read_csv(paths.result_file('ret', suffix, region, universe), index_col=0)
+    sdf_w = pd.read_csv(paths.result_file('score', suffix, region, universe), usecols=['date', 'permno', 'sdf_weight']).set_index(['date', 'permno'])['sdf_weight']
+    refits = pd.read_csv(paths.result_file('node_betas', suffix, region, universe))['refit_date'].unique()
     factors = pd.read_csv(out_dir / 'factor_returns.csv', index_col=0)
 
     features = list(Chars().__dict__.values())[:-2]
-    data = read_char_data(features, universe=None if reg == 'full' else reg, ret_name=RET_NAME).swaplevel(0, 1).sort_index()
+    data = read_backtest_data(features, RET_NAME, region=region, universe=universe).swaplevel(0, 1).sort_index()
     data = data[data.index.get_level_values('date') >= rets.index.min()]
     ret = data[RET_NAME]
     ew_market = ret.groupby('date').transform('mean')
@@ -119,7 +119,7 @@ def build_positions(reg, suffix, equal_weighted):
 # %%
 if __name__ == '__main__':
     pd.set_option('display.width', 250)
-    p = build_positions(REG, SUFFIX, EQUAL_WEIGHTED)
+    p = build_positions(REGION, UNIVERSE, SUFFIX, EQUAL_WEIGHTED)
     for name, gap in p['checks'].items():
         print(f'Check: {name}, max abs diff {gap:.1e}')
     rets, h, out_dir = p['rets'], p['h'], p['out_dir']
@@ -137,7 +137,7 @@ if __name__ == '__main__':
     table.to_csv(out_dir / 'hedge_costs_by_period.csv')
     ratios.to_csv(out_dir / 'hedge_ratios_summary.csv')
     h.to_csv(out_dir / 'hedge_ratios_by_refit.csv')
-    print(f'\n==== {REG} ({SUFFIX}): SDF alone vs factor-hedged, before and after costs ====')
+    print(f'\n==== {LABEL} ({SUFFIX}): SDF alone vs factor-hedged, before and after costs ====')
     print(table.round(2).to_string())
     print('\nHedge ratios (factor exposure removed per unit of SDF)')
     print(ratios.round(3).to_string())

@@ -100,11 +100,8 @@ if __name__ == '__main__':
         if not saved:
             all_combos = pd.DataFrame()
             all_portfolios = pd.DataFrame()
-            files = list(paths.processed_data.iterdir())
-            for tree_file_path in tqdm(files):
-                if not paths.is_tree_file(tree_file_path, reg):
-                    continue
-                
+            for tree_file_path in tqdm(paths.tree_files(region=reg)):
+
                 # logging.info('Loading model dump')
                 feature_combination = tree_file_path.stem
                 model_output_name = f"{feature_combination}{paths.sep}{paths.model_suffix}"

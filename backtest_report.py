@@ -3,7 +3,7 @@
 Stand-alone performance report for a run_backtest() output in result/:
     ret file    SDF returns ('Return' factor-hedged, 'Return_mkt_adj' market-adjusted)
     score file  stock scores
-(names from DataPaths.result_file, e.g. result/ret_std_largecap.csv)
+(names from DataPaths.result_file, e.g. result/ret_std_largecap.csv or result/GL_ret_std.csv)
 
 For the full sample and each period (decades by default) it reports return, risk, Sharpe ratio and
 alpha against the characteristic factor returns, for
@@ -15,9 +15,10 @@ alpha against the characteristic factor returns, for
        market-adjusted stock return, which adds up to Return_mkt_adj), and the score long/short within
        each size quintile.
 Tables are printed and saved to the 'report' result folder, e.g. result/report_std_largecap/.
-Universe and run: python backtest_report.py largecap [vw] (defaults 'full' and 'std').
+Run: python backtest_report.py [<universe>] [<suffix>] [--region GL] [--suffix vw], e.g. largecap vw;
+defaults: universe 'full' (when no region is given), suffix 'std'.
 """
-import sys
+import argparse
 from itertools import combinations
 
 import numpy as np
@@ -26,13 +27,27 @@ import statsmodels.api as sm
 import matplotlib.pyplot as plt
 
 from src.constants import Chars, DataPaths
-from src.preprocessing import read_char_data
+from src.preprocessing import read_backtest_data
 from src.functions import calc_fac_ret, _get_weights
 
-_ARGS = [a for a in sys.argv[1:] if not a.startswith('-')]
-REG = _ARGS[0] if _ARGS else 'full'          # python backtest_report.py <universe> [<suffix>]
-SUFFIX = _ARGS[1] if len(_ARGS) > 1 else 'std'  # 'vw' = value-weighted run
-RET_NAME = 'ret'
+
+
+def _run_args():
+    """python <script> [<universe>] [<suffix>] [--region GL] [--suffix vw]; universe defaults to 'full' when no
+    region is given, suffix to 'std' ('vw' = value-weighted run)."""
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument('universe', nargs='?')
+    parser.add_argument('suffix', nargs='?')
+    parser.add_argument('--region')
+    parser.add_argument('--suffix', dest='suffix_flag')
+    args, _ = parser.parse_known_args()
+    universe = args.universe if (args.universe or args.region) else 'full'
+    return args.region, universe, args.suffix_flag or args.suffix or 'std'
+
+
+REGION, UNIVERSE, SUFFIX = _run_args()
+LABEL = DataPaths().label(REGION, UNIVERSE)
+RET_NAME = 'gross_returns' if UNIVERSE is None else 'ret'
 EQUAL_WEIGHTED = SUFFIX != 'vw'  # market adjustment of the run (prepare_data in backtest.py)
 SCORES = ['sdf_weight', 'size_oriented_score', 'norm_score']
 PERIODS = None                  # None = decades, or {'name': (start, end)} with YYYYMMDD ints
@@ -150,16 +165,16 @@ if __name__ == '__main__':
     pd.set_option('display.width', 250)
     pd.set_option('display.max_columns', 30)
     paths = DataPaths()
-    out_dir = paths.result_file('report', REG, SUFFIX, ext=None)
+    out_dir = paths.result_file('report', SUFFIX, REGION, UNIVERSE, ext=None)
     out_dir.mkdir(parents=True, exist_ok=True)
 
     # ---------------- inputs ----------------
-    rets = pd.read_csv(paths.result_file('ret', REG, SUFFIX), index_col=0)
-    scores = pd.read_csv(paths.result_file('score', REG, SUFFIX)).set_index(['date', 'permno'])
+    rets = pd.read_csv(paths.result_file('ret', SUFFIX, REGION, UNIVERSE), index_col=0)
+    scores = pd.read_csv(paths.result_file('score', SUFFIX, REGION, UNIVERSE)).set_index(['date', 'permno'])
     start = rets.index.min()
 
     features = list(Chars().__dict__.values())[:-2]
-    data = read_char_data(features, universe=None if REG == 'full' else REG, ret_name=RET_NAME).swaplevel(0, 1).sort_index()
+    data = read_backtest_data(features, RET_NAME, region=REGION, universe=UNIVERSE).swaplevel(0, 1).sort_index()
     print('Computing factor returns')
     factors = calc_fac_ret(data[features], data[RET_NAME], date_col='date', score_weighted=True)
     factors.to_csv(out_dir / 'factor_returns.csv')
@@ -277,14 +292,14 @@ if __name__ == '__main__':
     fig, axes = plt.subplots(1, 3, figsize=(20, 5))
     cum = rets.cumsum()
     cum.index = pd.to_datetime(cum.index.astype(str), format='%Y%m%d')
-    cum.plot(ax=axes[0], title=f'{REG}: SDF cumulative returns')
+    cum.plot(ax=axes[0], title=f'{LABEL}: SDF cumulative returns')
     ls_cum = pd.DataFrame(ls_all['all stocks']).cumsum()
     ls_cum.index = pd.to_datetime(ls_cum.index.astype(str), format='%Y%m%d')
-    ls_cum.plot(ax=axes[1], title=f'{REG}: score long/short, all stocks')
+    ls_cum.plot(ax=axes[1], title=f'{LABEL}: score long/short, all stocks')
     if 'sdf_weight' in scores:
         contrib_cum = contrib.cumsum()
         contrib_cum.index = pd.to_datetime(contrib_cum.index.astype(str), format='%Y%m%d')
-        contrib_cum.plot(ax=axes[2], title=f'{REG}: Return_mkt_adj by size bucket (cumulative)')
+        contrib_cum.plot(ax=axes[2], title=f'{LABEL}: Return_mkt_adj by size bucket (cumulative)')
     fig.tight_layout()
     fig.savefig(out_dir / 'cumulative_returns.png', dpi=120)
     plt.show()

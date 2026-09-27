@@ -312,3 +312,17 @@ def read_char_data(features, universe=None, ret_name='ret'):
     data = data.dropna(subset=[ret_name, 'mkt_cap'])
     # zero market cap gives lme = -log(0) = inf and zero portfolio weight
     return data[data['mkt_cap'] > 0]
+
+
+def read_backtest_data(features, ret_name, region=None, universe=None):
+    """
+    Stock panel for building trees and backtesting: the characteristic files of a universe ('full', 'largecap',
+    'largecap001'), or the company data of a region ('GL', 'US', ...; 'ALL' = all regions together).
+    """
+    if universe is not None:
+        return read_char_data(features, universe=None if universe == 'full' else universe, ret_name=ret_name)
+    if region == 'ALL':
+        return read_all_data(target=ret_name, ei_factors=features)[0]
+    if region is not None:
+        return read_ei_data(region_=region, target=ret_name, ei_factors=features)[0]
+    raise ValueError('Give a region (company data) or a universe (characteristic files)')

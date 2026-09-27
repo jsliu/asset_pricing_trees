@@ -18,21 +18,21 @@ from make_deck import (Deck, M, W, NAVY, ACCENT, ACCENT_LIGHT, TEXT, BODY, ON_DA
                        text, table, box, chart, num)
 from src.constants import DataPaths
 
-UNIVERSES = [   # label, universe, run suffix, description
-    ("Full", "full", "std", "All stocks, equal-weighted"),
-    ("Large cap", "largecap", "std", "Market cap ≥ 0.001% of the total, equal-weighted"),
-    ("Large cap 0.01%", "largecap001", "std", "Market cap ≥ 0.01% of the total, equal-weighted"),
-    ("Large cap VW", "largecap", "vw", "Market cap ≥ 0.001% of the total, value-weighted"),
+UNIVERSES = [   # label, region, universe, run suffix, description
+    ("Full", None, "full", "std", "All stocks, equal-weighted"),
+    ("Large cap", None, "largecap", "std", "Market cap ≥ 0.001% of the total, equal-weighted"),
+    ("Large cap 0.01%", None, "largecap001", "std", "Market cap ≥ 0.01% of the total, equal-weighted"),
+    ("Large cap VW", None, "largecap", "vw", "Market cap ≥ 0.001% of the total, value-weighted"),
 ]
 COLORS = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100"]     # categorical slots 1-4, fixed per universe
 SCORE = "size_oriented_score"
 NA = "n/a"
 
 
-def load(reg, suffix):
+def load(region, universe, suffix):
     """Report tables of one universe/run, or None if the run is missing."""
     paths = DataPaths()
-    rep = paths.result_file("report", reg, suffix, ext=None)
+    rep = paths.result_file("report", suffix, region, universe, ext=None)
     if not (rep / "sdf_returns_by_period.csv").exists():
         return None
 
@@ -41,14 +41,14 @@ def load(reg, suffix):
         return pd.read_csv(f).set_index(index) if f.exists() else None
 
     return {
-        "rets": pd.read_csv(paths.result_file("ret", reg, suffix), index_col=0),
+        "rets": pd.read_csv(paths.result_file("ret", suffix, region, universe), index_col=0),
         "sdf": pd.read_csv(rep / "sdf_returns_by_period.csv").set_index(["series", "period"]),
         "loadings": pd.read_csv(rep / "sdf_factor_loadings.csv").set_index(["series", "stat"]),
         "perf": pd.read_csv(rep / "score_long_short_by_period.csv").set_index(["universe", "score", "period"]),
         "costs": pd.read_csv(rep / "score_turnover_costs.csv").set_index(["universe", "score"]),
         "contrib": pd.read_csv(rep / "sdf_return_by_size_by_period.csv").set_index(["size bucket", "period"]),
         "exposure": pd.read_csv(rep / "sdf_weight_by_size.csv", index_col=0),
-        "refits": pd.read_csv(paths.result_file("node_betas", reg, suffix))["refit_date"].nunique(),
+        "refits": pd.read_csv(paths.result_file("node_betas", suffix, region, universe))["refit_date"].nunique(),
         "hedge": opt("hedge_costs_by_period.csv", ["portfolio", "period"]),
         "ratios": opt("hedge_ratios_summary.csv", ["Unnamed: 0"]),
         "controls": opt("turnover_controls_summary.csv", ["portfolio", "control"]),
@@ -140,7 +140,7 @@ def build(runs, path, preview_dir=None):
     best_hedged = max(runs, key=hedged_net)
     fig = deck.slide("Key findings", "What changes when the universe gets larger")
     full_lbl = runs[0]["label"]
-    lc = [r for r in runs if r["reg"] != "full"]
+    lc = [r for r in runs if r["universe"] != "full"]
     items = [
         ("Raw SDF weakens", f"Market-adjusted Sharpe {num(mk[full_lbl]['Sharpe'])} in the full universe against "
          + ", ".join(f"{num(mk[r['label']]['Sharpe'])} ({r['label']})" for r in lc) + "."),
@@ -296,12 +296,13 @@ H_ = 9
 
 if __name__ == "__main__":
     runs = []
-    for (label, reg, suffix, desc), color in zip(UNIVERSES, COLORS):
-        d = load(reg, suffix)
+    for (label, region, universe, suffix, desc), color in zip(UNIVERSES, COLORS):
+        d = load(region, universe, suffix)
         if d is None:
-            print(f"Skipping {label}: no results for {reg} ({suffix})")
+            print(f"Skipping {label}: no results for {DataPaths().label(region, universe)} ({suffix})")
             continue
-        runs.append({"label": label, "reg": reg, "suffix": suffix, "desc": desc, "color": color, "d": d})
+        runs.append({"label": label, "region": region, "universe": universe, "suffix": suffix, "desc": desc,
+                     "color": color, "d": d})
     out = mc.REPO / "presentation" / "backtest_comparison.pdf"
     preview = None
     if "--png" in sys.argv:
