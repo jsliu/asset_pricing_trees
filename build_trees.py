@@ -126,7 +126,7 @@ if __name__ == '__main__':
     # regions = ['full', ]
     # regions = ['largecap', 'largecap001']
     regions = ['largecap', ]
-    EQUAL_WEIGHTED = False     # value-weighted trees are saved with the 'vw' variant in their name
+    EQUAL_WEIGHTED = True      # False: value-weighted trees are saved with the 'vw' variant in their name
     for reg in regions:
         logging.info(f"Loading base characteristics")
         print(f"Loading base characteristics in {reg}")

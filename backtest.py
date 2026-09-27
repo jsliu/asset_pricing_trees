@@ -354,7 +354,7 @@ def run_backtest(reg, ret_name='gross_returns', suffix='std', start_year=None, r
 # Running backtest
 if __name__ == '__main__':
     sns.set_theme()
-    EQUAL_WEIGHTED = False
+    EQUAL_WEIGHTED = True
     suffix = 'std' if EQUAL_WEIGHTED else 'vw'
     # ret_name = 'Universe Returns'
     # ret_name = 'gross_returns'
