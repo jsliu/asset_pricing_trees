@@ -120,9 +120,7 @@ if __name__ == '__main__':
     # paths = DataPaths()
 
     # data_saved = False
-    # ret_name = "Universe Returns"
-    # ret_name = "gross_returns"
-    ret_name = "ret"
+    # returns column: "gross_returns" in the company data, "ret" in the characteristic files (set per run below)
     paths = DataPaths()
     # company data: regions = ['GL', 'US', ...] (or 'ALL') with universes = [None]
     # characteristic files: regions = [None] with universes = ['full', 'largecap', 'largecap001']
@@ -131,6 +129,7 @@ if __name__ == '__main__':
     EQUAL_WEIGHTED = True      # False: value-weighted trees are saved with the 'vw' variant in their name
     for region, universe in product(regions, universes):
         label = paths.label(region, universe)
+        ret_name = "gross_returns" if universe is None else "ret"
         logging.info(f"Loading base characteristics")
         print(f"Loading base characteristics in {label}")
 

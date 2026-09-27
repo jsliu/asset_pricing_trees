@@ -353,14 +353,13 @@ if __name__ == '__main__':
     sns.set_theme()
     EQUAL_WEIGHTED = True
     suffix = 'std' if EQUAL_WEIGHTED else 'vw'
-    # ret_name = 'Universe Returns'
-    # ret_name = 'gross_returns'
-    ret_name = 'ret'
-    # company data: regions = ['GL', 'US', ...] with universes = [None] (and ret_name = 'gross_returns')
+    # returns column: 'gross_returns' in the company data, 'ret' in the characteristic files (set per run below)
+    # company data: regions = ['GL', 'US', ...] with universes = [None]
     # characteristic files: regions = [None] with universes = ['full', 'largecap', 'largecap001']
     regions = [None]
     universes = ['largecap', ]
     for region, universe in product(regions, universes):
+        ret_name = 'gross_returns' if universe is None else 'ret'
         run_backtest(region, universe, ret_name=ret_name, suffix=suffix, start_year=1980, refit_freq='Y',
                      equal_weighted=EQUAL_WEIGHTED)
 
