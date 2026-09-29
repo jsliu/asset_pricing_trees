@@ -119,7 +119,20 @@ def to_pandas(tree_file_path, missing_rate=0.1):
     return tp.loc[:, tp.columns[valid_col]].fillna(0)
 
 
-def prune(tree_returns, n_jobs=-1):
+def prune(tree_returns, n_jobs=-1, validated=False, window=None, folds=3):
+    """
+    Prune tree portfolios to a sparse SDF; returns (row of the chosen model on the LARS path, fitted TreeElastic).
+
+    validated=False (original): shrinkage and ridge chosen by GridSearchCV on all but the last test_size months,
+        the model is fitted on those months, and the sparsity (path row) with the highest Sharpe ratio over the
+        last test_size months is chosen.
+    validated=True: on the last `window` months (all if None), shrinkage, ridge and the number of portfolios k are
+        chosen together by the Sharpe ratio averaged over `folds` successive validation folds; the chosen model is
+        then refitted on the whole window, so the weights use the most recent months as well.
+    """
+    if validated:
+        return _prune_validated(tree_returns, window, folds)
+
     logging.info('Splitting data')
 
     train_val_portfolios, test_portfolios = train_test_split(
@@ -151,6 +164,49 @@ def prune(tree_returns, n_jobs=-1):
     sharpe_ratio = sdf.mean() / (sdf.std() + 1e-20)
     best_models = np.argmax(sharpe_ratio)
     return best_models, overall_model
+
+
+def _path_sharpe_by_k(model, returns, ks):
+    """Sharpe ratio over `returns` of the model's path row holding k portfolios, for each k (nan if none does)."""
+    counts = (model.betas != 0).sum(axis=1)
+    if not counts.any():
+        return np.full(len(ks), np.nan)
+    sdf = model.predict(returns)
+    sharpe = (sdf.mean() / (sdf.std() + 1e-20)).to_numpy()
+    by_k = {k: sr for k, sr in zip(counts, sharpe)}          # the last path row with k portfolios
+    return np.array([by_k.get(k, np.nan) for k in ks])
+
+
+def _prune_validated(tree_returns, window=None, folds=3):
+    data = tree_returns.fillna(0)
+    if window:
+        data = data.iloc[-window:]
+    ks = np.arange(Parameters.k_min, Parameters.k_max + 1)
+    splits = list(TimeSeriesSplit(n_splits=folds).split(data))
+
+    best, best_score = None, -np.inf
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", category=ConvergenceWarning)
+        warnings.filterwarnings("ignore", category=RuntimeWarning)
+        for shrink in Parameters.mean_shrinkage:
+            for ridge in Parameters.ridge_lambda:
+                fold_sharpes = []
+                for train_idx, val_idx in splits:
+                    model = TreeElastic(mean_shrinkage=shrink, ridge_lambda=ridge,
+                                        k_min=Parameters.k_min, k_max=Parameters.k_max).fit(data.iloc[train_idx])
+                    fold_sharpes.append(_path_sharpe_by_k(model, data.iloc[val_idx], ks))
+                mean_sharpe = np.nanmean(np.vstack(fold_sharpes), axis=0) if np.isfinite(np.vstack(fold_sharpes)).any() \
+                    else np.full(len(ks), np.nan)
+                if np.isfinite(mean_sharpe).any() and np.nanmax(mean_sharpe) > best_score:
+                    best_score = np.nanmax(mean_sharpe)
+                    best = (shrink, ridge, ks[np.nanargmax(mean_sharpe)])
+
+        shrink, ridge, k = best if best else (Parameters.mean_shrinkage[0], Parameters.ridge_lambda[0], Parameters.k_min)
+        model = TreeElastic(mean_shrinkage=shrink, ridge_lambda=ridge,
+                            k_min=Parameters.k_min, k_max=Parameters.k_max).fit(data)
+    counts = (model.betas != 0).sum(axis=1)
+    row = int(np.argmin(np.abs(counts - k)))
+    return row, model
 
 # %%
 if __name__ == '__main__':

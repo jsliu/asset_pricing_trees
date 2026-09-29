@@ -15,7 +15,7 @@ from plot_test_sr import calc_sharpe
 from prune_trees import prune, to_pandas, factor_betas, residualize_portfolios
 from build_trees import prepare_data
 from stock_portfolio_pl import get_stocks_in_node, compute_node_scores
-from src.constants import DataPaths, Parameters, Columns, Chars, Years
+from src.constants import DataPaths, Parameters, Columns, Chars, Years, TREE_SETUPS, PRUNE_SETUPS, run_variant
 from src.functions import calc_fac_ret
 from src.preprocessing import read_backtest_data
 from src.utils import build_comb
@@ -37,9 +37,9 @@ def r_squared(X, y):
 # tree_portfolio's min_node_size (src/utils.py): smaller nodes get no portfolio return
 MIN_NODE_SIZE = 50
 
-def _select_portfolios(train_val_portfolio):
+def _select_portfolios(train_val_portfolio, prune_kwargs=None):
     """Prune one tree and return the column positions of its selected portfolios."""
-    best_model, overall_model = prune(train_val_portfolio, n_jobs=1)
+    best_model, overall_model = prune(train_val_portfolio, n_jobs=1, **(prune_kwargs or {}))
     return np.nonzero(overall_model.betas[best_model, :])[0]
 
 def _residual_returns(tree, rows):
@@ -159,8 +159,8 @@ def _refit_period(d, refit_freq):
     return d
 
 
-def run_backtest(region=None, universe=None, ret_name='gross_returns', suffix='std', start_year=None, refit_freq='Y',
-                 equal_weighted=True):
+def run_backtest(region=None, universe=None, ret_name='gross_returns', start_year=None, refit_freq='Y',
+                 equal_weighted=True, tree_tag=None, prune_tag=None):
     """
     Run the tree backtest for a region of the company data (e.g. 'GL') or a universe of the characteristic files
     (e.g. 'largecap'); saves scores/returns to paths.output and returns (rets, stk_score).
@@ -177,8 +177,13 @@ def run_backtest(region=None, universe=None, ret_name='gross_returns', suffix='s
 
     The SDF node weights (beta) of every refit are saved as the 'node_betas' result file (DataPaths.result_file).
 
-    equal_weighted: equal- or value-weighted market adjustment and node weights; value-weighted runs read the
-    'vw' tree files (build_trees.py with EQUAL_WEIGHTED = False).
+    equal_weighted: equal- or value-weighted market adjustment and node weights. Like the tree files, the outputs of
+    a value-weighted run end in '_vw' (e.g. result/ret_largecap_vw.csv) and it reads the '_vw' trees
+    (build_trees.py with EQUAL_WEIGHTED = False).
+
+    tree_tag: a tree set-up in TREE_SETUPS (characteristics and depth of the trees, built by build_trees.py with the
+    same TREE_TAG); prune_tag: a pruning set-up in PRUNE_SETUPS. Both are added to the output file names,
+    e.g. result/ret_largecap_slow3_val.csv.
 
     refit_freq: 'Y' (yearly), 'Q' (quarterly) or 'M' (every date) - how often the tree and final models are
     re-estimated. Between refits the last fitted models are applied to each new date.
@@ -190,11 +195,15 @@ def run_backtest(region=None, universe=None, ret_name='gross_returns', suffix='s
     paths = DataPaths()
     start_year = years.min_year if start_year is None else start_year
 
-    label = paths.label(region, universe)
+    variant = run_variant(equal_weighted, tree_tag, prune_tag)
+    label = paths.label(region, universe, variant)
+    tree_chars = TREE_SETUPS[tree_tag]['chars']
+    prune_kwargs = PRUNE_SETUPS[prune_tag]
     print(f"Loading base characteristics in {label}")
 
     features = list(chars.__dict__.values())[:-2]
-    data = read_backtest_data(features, ret_name, region=region, universe=universe)
+    # the factor characteristics, and those of the trees when they are others
+    data = read_backtest_data(list(dict.fromkeys(features + (tree_chars or []))), ret_name, region=region, universe=universe)
     # data = read_db_data(region_=reg, features=features, ret_name=Columns.returns_col, data_saved=data_saved)
     # data = read_big_universe(ret_name=ret_name, features=features)
     factor_returns = calc_fac_ret(data[features], data[ret_name], date_col="date", score_weighted=True)
@@ -204,7 +213,7 @@ def run_backtest(region=None, universe=None, ret_name='gross_returns', suffix='s
     comb_pl = build_comb(
         data=data_pl,
         merged_df=ret_and_mcap,
-        features=features+['lme'],
+        features=(tree_chars or features) + ['lme'],     # the characteristics the trees were built from
     )
 
     # -----------------------------
@@ -213,7 +222,7 @@ def run_backtest(region=None, universe=None, ret_name='gross_returns', suffix='s
     tree_data = {}
     all_dates = set()
 
-    for tree_file_path in paths.tree_files(region, universe, None if equal_weighted else 'vw'):
+    for tree_file_path in paths.tree_files(region, universe, run_variant(equal_weighted, tree_tag)):
 
         # raw portfolio returns; they are residualised on the factors at each refit using training rows only
         tree_pd = to_pandas(tree_file_path)
@@ -277,7 +286,7 @@ def run_backtest(region=None, universe=None, ret_name='gross_returns', suffix='s
                 test_list.append(_residual_returns(obj, slice(start, end)))
 
             # prune each tree in parallel and keep only its selected portfolios
-            selected = parallel(delayed(_select_portfolios)(train) for train in train_list)
+            selected = parallel(delayed(_select_portfolios)(train, prune_kwargs) for train in train_list)
             train_list = [train.iloc[:, idx] for train, idx in zip(train_list, selected)]
             test_list = [test.iloc[:, idx] for test, idx in zip(test_list, selected)]
 
@@ -297,7 +306,7 @@ def run_backtest(region=None, universe=None, ret_name='gross_returns', suffix='s
             all_train_portfolios = all_train_portfolios[all_test_portfolios.columns]
 
             # final model
-            final_best_model, final_model = prune(all_train_portfolios)
+            final_best_model, final_model = prune(all_train_portfolios, **prune_kwargs)
 
             final_sharpes, final_combo_wei, final_port = calc_sharpe(
                 all_train_portfolios, final_model
@@ -334,15 +343,15 @@ def run_backtest(region=None, universe=None, ret_name='gross_returns', suffix='s
 
 
     stk_score = pl.concat(stock_scores)
-    stk_score.write_csv(paths.result_file('score', suffix, region, universe))
-    pd.concat(refit_betas).to_csv(paths.result_file('node_betas', suffix, region, universe), index=False)
+    stk_score.write_csv(paths.result_file('score', region, universe, variant))
+    pd.concat(refit_betas).to_csv(paths.result_file('node_betas', region, universe, variant), index=False)
 
     rets = rets.dropna()
     rets.cumsum().plot()
     plt.title(f"{label} cumulative returns")
     plt.show()
 
-    rets.to_csv(paths.result_file('ret', suffix, region, universe))
+    rets.to_csv(paths.result_file('ret', region, universe, variant))
 
     return rets, stk_score
 
@@ -351,16 +360,17 @@ def run_backtest(region=None, universe=None, ret_name='gross_returns', suffix='s
 # Running backtest
 if __name__ == '__main__':
     sns.set_theme()
-    EQUAL_WEIGHTED = True
-    suffix = 'std' if EQUAL_WEIGHTED else 'vw'
     # returns column: 'gross_returns' in the company data, 'ret' in the characteristic files (set per run below)
     # company data: regions = ['GL', 'US', ...] with universes = [None]
     # characteristic files: regions = [None] with universes = ['full', 'largecap', 'largecap001']
     regions = [None]
     universes = ['largecap', ]
+    EQUAL_WEIGHTED = True      # False: reads the '_vw' trees and names its outputs with '_vw', e.g. ret_largecap_vw.csv
+    TREE_TAG = None            # tree set-up in TREE_SETUPS, e.g. 'slow3' (trees built with the same TREE_TAG)
+    PRUNE_TAG = None           # pruning set-up in PRUNE_SETUPS, e.g. 'val' (validated pruning on a rolling window)
     for region, universe in product(regions, universes):
         ret_name = 'gross_returns' if universe is None else 'ret'
-        run_backtest(region, universe, ret_name=ret_name, suffix=suffix, start_year=1980, refit_freq='Y',
-                     equal_weighted=EQUAL_WEIGHTED)
+        run_backtest(region, universe, ret_name=ret_name, start_year=1980, refit_freq='Y',
+                     equal_weighted=EQUAL_WEIGHTED, tree_tag=TREE_TAG, prune_tag=PRUNE_TAG)
 
 # %%

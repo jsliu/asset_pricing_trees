@@ -3,7 +3,7 @@
 Stand-alone performance report for a run_backtest() output in result/:
     ret file    SDF returns ('Return' factor-hedged, 'Return_mkt_adj' market-adjusted)
     score file  stock scores
-(names from DataPaths.result_file, e.g. result/ret_std_largecap.csv or result/GL_ret_std.csv)
+(names from DataPaths.result_file, e.g. result/ret_largecap.csv, result/ret_largecap_vw.csv or result/GL_ret.csv)
 
 For the full sample and each period (decades by default) it reports return, risk, Sharpe ratio and
 alpha against the characteristic factor returns, for
@@ -14,10 +14,16 @@ alpha against the characteristic factor returns, for
     4. the market-cap breakdown: the SDF's market-adjusted return split by size quintile (sdf_weight x
        market-adjusted stock return, which adds up to Return_mkt_adj), and the score long/short within
        each size quintile.
-Tables are printed and saved to the 'report' result folder, e.g. result/report_std_largecap/.
-Run: python backtest_report.py [<universe>] [<suffix>] [--region GL] [--suffix vw], e.g. largecap vw;
-defaults: universe 'full' (when no region is given), suffix 'std'.
+Tables are printed and saved to the 'report' result folder, e.g. result/report_largecap/.
+Run: python analysis/backtest_report.py [<universe>] [--region GL] [--vw] [--variant TAGS], e.g. largecap --vw for
+the value-weighted run or largecap --variant slow3_val for an experiment (see run_variant in src/constants.py);
+universe defaults to 'full' when no region is given.
 """
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))   # project root, for src/ and backtest.py
+
 import argparse
 from itertools import combinations
 
@@ -26,29 +32,29 @@ import pandas as pd
 import statsmodels.api as sm
 import matplotlib.pyplot as plt
 
-from src.constants import Chars, DataPaths
+from src.constants import Chars, DataPaths, parse_variant
 from src.preprocessing import read_backtest_data
 from src.functions import calc_fac_ret, _get_weights
 
 
 
 def _run_args():
-    """python <script> [<universe>] [<suffix>] [--region GL] [--suffix vw]; universe defaults to 'full' when no
-    region is given, suffix to 'std' ('vw' = value-weighted run)."""
+    """python <script> [<universe>] [--region GL] [--vw] [--variant TAGS]; universe defaults to 'full' when no
+    region is given; --vw selects the value-weighted run, --variant any run (e.g. 'vw', 'slow3_val')."""
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument('universe', nargs='?')
-    parser.add_argument('suffix', nargs='?')
     parser.add_argument('--region')
-    parser.add_argument('--suffix', dest='suffix_flag')
+    parser.add_argument('--vw', action='store_true')
+    parser.add_argument('--variant')
     args, _ = parser.parse_known_args()
     universe = args.universe if (args.universe or args.region) else 'full'
-    return args.region, universe, args.suffix_flag or args.suffix or 'std'
+    return args.region, universe, args.variant or ('vw' if args.vw else None)
 
 
-REGION, UNIVERSE, SUFFIX = _run_args()
-LABEL = DataPaths().label(REGION, UNIVERSE)
+REGION, UNIVERSE, VARIANT = _run_args()            # VARIANT: file-name part of the run, e.g. None, 'vw', 'slow3_val'
+EQUAL_WEIGHTED = parse_variant(VARIANT)[0]         # market adjustment of the run (backtest.py)
+LABEL = DataPaths().label(REGION, UNIVERSE, VARIANT)
 RET_NAME = 'gross_returns' if UNIVERSE is None else 'ret'
-EQUAL_WEIGHTED = SUFFIX != 'vw'  # market adjustment of the run (prepare_data in backtest.py)
 SCORES = ['sdf_weight', 'size_oriented_score', 'norm_score']
 PERIODS = None                  # None = decades, or {'name': (start, end)} with YYYYMMDD ints
 N_SIZE_BUCKETS = 5              # market-cap buckets (quintiles) for the size breakdown
@@ -165,12 +171,12 @@ if __name__ == '__main__':
     pd.set_option('display.width', 250)
     pd.set_option('display.max_columns', 30)
     paths = DataPaths()
-    out_dir = paths.result_file('report', SUFFIX, REGION, UNIVERSE, ext=None)
+    out_dir = paths.result_file('report', REGION, UNIVERSE, VARIANT, ext=None)
     out_dir.mkdir(parents=True, exist_ok=True)
 
     # ---------------- inputs ----------------
-    rets = pd.read_csv(paths.result_file('ret', SUFFIX, REGION, UNIVERSE), index_col=0)
-    scores = pd.read_csv(paths.result_file('score', SUFFIX, REGION, UNIVERSE)).set_index(['date', 'permno'])
+    rets = pd.read_csv(paths.result_file('ret', REGION, UNIVERSE, VARIANT), index_col=0)
+    scores = pd.read_csv(paths.result_file('score', REGION, UNIVERSE, VARIANT)).set_index(['date', 'permno'])
     start = rets.index.min()
 
     features = list(Chars().__dict__.values())[:-2]

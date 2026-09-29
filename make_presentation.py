@@ -2,11 +2,14 @@
 """
 Runs the reporting pipeline and builds the comparison presentation, presentation/backtest_comparison.pdf.
 
-For each run in RUNS whose backtest results exist (result/ret_<suffix>_<universe>.csv, from backtest.py):
-    1. backtest_report.py      performance tables and factor returns   -> result/report_<suffix>_<universe>/
-    2. hedge_analysis.py       factor-hedged portfolio after costs
-    3. turnover_controls.py    partial rebalancing and signal averaging
-    (4. presentation/make_deck.py, a PDF for the run alone, with --single-decks)
+For each run in RUNS whose backtest results exist (e.g. result/ret_largecap.csv or ret_largecap_vw.csv, from
+backtest.py):
+    1. analysis/backtest_report.py      performance tables and factor returns   -> e.g. result/report_largecap/
+    2. analysis/hedge_analysis.py       factor-hedged portfolio after costs
+    3. analysis/turnover_controls.py    partial rebalancing and signal averaging
+    4. analysis/neutralize_scores.py    the score made neutral to the factor characteristics
+    5. analysis/score_hedge.py          the score hedged with the betas of each model's rebuilt history (slow: ~1h)
+    (6. presentation/make_deck.py, a PDF for the run alone, with --single-decks)
 then presentation/make_comparison.py puts all runs side by side in one PDF.
 
 Run from the project root:
@@ -18,7 +21,7 @@ Run from the project root:
 Company data (regions), instead of RUNS:
     python make_presentation.py --regions GL                        one region
     python make_presentation.py --regions GL US EU UK JP AP EM      several regions, side by side in one PDF
-    python make_presentation.py --regions GL US --suffix vw         value-weighted runs of those regions
+    python make_presentation.py --regions GL US --vw                value-weighted runs of those regions
 These write presentation/backtest_comparison_regions.pdf (--output to change it). The regions' backtests must
 exist first: in backtest.py (and build_trees.py) set regions = ['GL', 'US', ...] and universes = [None].
 One comparison holds at most 8 runs.
@@ -33,44 +36,51 @@ from pathlib import Path
 
 from src.constants import DataPaths
 
-# region (company data, e.g. 'GL'), universe (characteristic files), run suffix ('std' or 'vw' = value-weighted);
-# keep in line with UNIVERSES in presentation/make_comparison.py, which sets the deck's columns
+# region (company data, e.g. 'GL'), universe (characteristic files), variant (None = equal-weighted baseline; else the
+# run's file-name part, e.g. 'vw' value-weighted, 'slow3' slow-characteristic depth-3 trees, 'val' validated pruning -
+# see run_variant in src/constants.py); the comparison deck shows these runs as its columns (at most 8)
 RUNS = [
-    (None, 'full', 'std'),
-    (None, 'largecap', 'std'),
-    (None, 'largecap001', 'std'),
+    (None, 'full', None),
+    (None, 'largecap', None),
+    (None, 'largecap001', None),
     (None, 'largecap', 'vw'),
+    (None, 'largecap', 'slow3'),
+    (None, 'largecap', 'val'),
+    (None, 'largecap', 'slow3_val'),
+    (None, 'largecap', 'screen3_val'),
 ]
 # Company data, set here instead of using --regions, for example:
-#   one region:        RUNS = [('GL', None, 'std')]
-#   several regions:   RUNS = [(region, None, 'std') for region in ['GL', 'US', 'EU', 'UK', 'JP', 'AP', 'EM']]
+#   one region:        RUNS = [('GL', None, None)]
+#   several regions:   RUNS = [(region, None, None) for region in ['GL', 'US', 'EU', 'UK', 'JP', 'AP', 'EM']]
 #   regions and universes side by side (up to 8 runs):
-#                      RUNS = [('GL', None, 'std'), ('US', None, 'std'), (None, 'largecap', 'std')]
+#                      RUNS = [('GL', None, None), ('US', None, None), (None, 'largecap', None)]
 
 ROOT = Path(__file__).resolve().parent
 STEPS = [   # script, file in the report folder it writes last
-    ('backtest_report.py', 'sdf_returns_by_period.csv'),
-    ('hedge_analysis.py', 'hedge_costs_by_period.csv'),
-    ('turnover_controls.py', 'turnover_controls_summary.csv'),
+    ('analysis/backtest_report.py', 'sdf_returns_by_period.csv'),
+    ('analysis/hedge_analysis.py', 'hedged_score_by_period.csv'),
+    ('analysis/turnover_controls.py', 'turnover_controls_summary.csv'),
+    ('analysis/neutralize_scores.py', 'neutral_score_summary.csv'),
+    ('analysis/score_hedge.py', 'hedged_score_nodes_by_period.csv'),
 ]
 
 
-def run_name(region, universe, suffix):
+def run_name(region, universe, variant):
     """Short name of a run, e.g. 'largecap', 'largecap_vw', 'GL'."""
-    return DataPaths().label(region, universe) + ('' if suffix == 'std' else f'_{suffix}')
+    return DataPaths().label(region, universe, variant)
 
 
-def run_token(region, universe, suffix):
-    """A run as make_comparison.py --runs takes it: [REGION@][UNIVERSE][:SUFFIX]."""
-    return (f'{region}@' if region else '') + (universe or '') + f':{suffix}'
+def run_token(region, universe, variant):
+    """A run as make_comparison.py --runs takes it: [REGION@][UNIVERSE][:vw]."""
+    return (f'{region}@' if region else '') + (universe or '') + (f':{variant}' if variant else '')
 
 
-def run_args(region, universe, suffix):
+def run_args(region, universe, variant):
     """Command-line arguments the report scripts take for a run."""
     args = [universe] if universe else []
     if region:
         args += ['--region', region]
-    return args + ['--suffix', suffix]
+    return args + (['--variant', variant] if variant else [])
 
 
 def run_step(script, args, log_file, env):
@@ -79,7 +89,7 @@ def run_step(script, args, log_file, env):
     with open(log_file, 'w') as log:
         result = subprocess.run([sys.executable, script, *args], cwd=ROOT, env=env, stdout=log, stderr=subprocess.STDOUT)
     status = 'done' if result.returncode == 0 else f'FAILED (exit {result.returncode})'
-    print(f'    {script:32s} {status:18s} {time.time() - start:5.0f}s   log: {log_file.relative_to(ROOT)}')
+    print(f'    {script:38s} {status:18s} {time.time() - start:5.0f}s   log: {log_file.relative_to(ROOT)}')
     if result.returncode != 0:
         tail = log_file.read_text().splitlines()[-15:]
         print('      ' + '\n      '.join(tail))
@@ -91,7 +101,7 @@ def main():
     parser.add_argument('--skip-existing', action='store_true', help='skip steps whose output already exists')
     parser.add_argument('--only', nargs='+', metavar='RUN', help='only these runs, e.g. full largecap_vw GL')
     parser.add_argument('--regions', nargs='+', metavar='REGION', help='company-data regions to run instead of RUNS, e.g. GL US EU')
-    parser.add_argument('--suffix', default='std', help="run suffix for --regions: 'std' or 'vw' (value-weighted)")
+    parser.add_argument('--vw', action='store_true', help='with --regions: the value-weighted runs of those regions')
     parser.add_argument('--output', help='comparison PDF name in presentation/ (default: backtest_comparison.pdf, '
                                          'or backtest_comparison_regions.pdf with --regions)')
     parser.add_argument('--single-decks', action='store_true', help='also build one PDF per run (make_deck.py)')
@@ -102,32 +112,33 @@ def main():
     logs = ROOT / paths.output / 'logs'
     logs.mkdir(parents=True, exist_ok=True)
     env = {**os.environ, 'MPLBACKEND': 'Agg'}          # charts are saved, not shown
-    failed, compared = [], []
-    runs = [(region, None, args.suffix) for region in args.regions] if args.regions else RUNS
+    failed = []
+    runs = [(region, None, 'vw' if args.vw else None) for region in args.regions] if args.regions else RUNS
     output = args.output or ('backtest_comparison_regions.pdf' if args.regions else 'backtest_comparison.pdf')
 
-    for region, universe, suffix in runs:
-        name = run_name(region, universe, suffix)
+    for region, universe, variant in runs:
+        name = run_name(region, universe, variant)
         if args.only and name not in args.only:
             continue
-        if not (ROOT / paths.result_file('ret', suffix, region, universe)).exists():
-            print(f'{name}: no backtest results ({paths.result_file("ret", suffix, region, universe)}), skipped')
+        if not (ROOT / paths.result_file('ret', region, universe, variant)).exists():
+            print(f'{name}: no backtest results ({paths.result_file("ret", region, universe, variant)}), skipped')
             continue
         print(f'{name}:')
-        report_dir = ROOT / paths.result_file('report', suffix, region, universe, ext=None)
+        report_dir = ROOT / paths.result_file('report', region, universe, variant, ext=None)
         steps = STEPS + ([('presentation/make_deck.py', None)] if args.single_decks else [])
         for script, step_output in steps:
             if args.skip_existing and step_output and (report_dir / step_output).exists():
-                print(f'    {script:32s} {"exists, skipped":18s}')
+                print(f'    {script:38s} {"exists, skipped":18s}')
                 continue
             extra = ['--png'] if (args.png and script.endswith('make_deck.py')) else []
-            ok = run_step(script, run_args(region, universe, suffix) + extra, logs / f'{Path(script).stem}_{name}.log', env)
+            ok = run_step(script, run_args(region, universe, variant) + extra, logs / f'{Path(script).stem}_{name}.log', env)
             if not ok:
                 failed.append(f'{name}: {script}')
                 break                                   # later steps need this one's output
-        if (report_dir / STEPS[0][1]).exists():
-            compared.append(run_token(region, universe, suffix))
 
+    # the comparison shows every run with results, including those --only left out of this session
+    compared = [run_token(region, universe, variant) for region, universe, variant in runs
+                if (ROOT / paths.result_file('report', region, universe, variant, ext=None) / STEPS[0][1]).exists()]
     print('comparison:')
     if not compared:
         print('    no run has results to compare, skipped')

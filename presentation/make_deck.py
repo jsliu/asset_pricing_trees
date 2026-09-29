@@ -1,8 +1,8 @@
 """
 Builds the backtest presentation as a PDF (16:9 pages) from the backtest outputs and the report tables.
-Run backtest_report.py first, then from the project root:
-    python presentation/make_deck.py [<universe>] [<suffix>] [--region GL] [--png]
-        -> presentation/[<region>_]backtest_<suffix>[_<universe>].pdf (universe defaults to 'full');
+Run analysis/backtest_report.py first, then from the project root:
+    python presentation/make_deck.py [<universe>] [--region GL] [--vw | --variant TAGS] [--png]
+        -> presentation/[<region>_]backtest[_<universe>][_vw].pdf (universe defaults to 'full');
            --png also writes one PNG per page to presentation/deck_preview/
 Numbers, tables and the descriptive sentences are all computed from the current results.
 """
@@ -18,7 +18,7 @@ from matplotlib.patches import Rectangle
 
 import make_charts as mc
 from backtest import MIN_NODE_SIZE
-from backtest_report import EQUAL_WEIGHTED, N_SIZE_BUCKETS, REGION, UNIVERSE, LABEL, SUFFIX
+from analysis.backtest_report import EQUAL_WEIGHTED, N_SIZE_BUCKETS, REGION, UNIVERSE, LABEL, VARIANT
 from src.constants import Chars, DataPaths, Parameters
 
 W, H, M = 16, 9, 0.9                     # page size and side margin, inches
@@ -27,6 +27,7 @@ NAVY, ACCENT, ACCENT_LIGHT = "#14213d", "#b04a18", "#f2a65a"
 TEXT, BODY, MUTED, ON_DARK = "#1f2a3d", "#3e4a5c", "#6b7585", "#c9d3e0"
 SERIF = ["Georgia", "DejaVu Serif"]
 DEFAULT_SCORE = "size_oriented_score"
+SCORE_LABEL = "score"           # name of DEFAULT_SCORE on the slides
 
 
 def num(v, fmt="{:.2f}"):
@@ -91,26 +92,53 @@ def box(fig, x, y_top, w, h, fill=CARD, edge=LINE):
                              facecolor=fill, edgecolor=edge, linewidth=1, zorder=0))
 
 
+CELL_PAD = 0.12          # inches of padding inside each side of a table cell
+CELL_LINE = 1.25         # line spacing of wrapped table cells
+
+
+def wrap_cell(s, col_width, size, bold=False):
+    """Lines of a cell's text wrapped to its column width (a word longer than the column stays whole)."""
+    chars = max(4, int((col_width - 2 * CELL_PAD) * 72 / (size * (0.53 if bold else 0.48))))
+    return textwrap.wrap(str(s), chars) or [""]
+
+
+def table_height(width, header, rows, widths, size=15, row_h=0.46, bold=()):
+    """Height in inches that table() will take, with wrapped cells."""
+    line_h = size * CELL_LINE / 72
+
+    def row_height(cells, is_bold):
+        lines = max(len(wrap_cell(s, width * widths[i], size, is_bold)) for i, s in enumerate(cells))
+        return max(row_h, lines * line_h + (row_h - line_h))
+
+    return row_height(header, True) + sum(row_height(row, r in bold) for r, row in enumerate(rows))
+
+
 def table(fig, x, y, width, header, rows, widths, align=None, size=15, row_h=0.46, bold=()):
-    """Banded table with its top-left corner at (x, y) inches; returns the y below it."""
+    """
+    Banded table with its top-left corner at (x, y) inches; returns the y below it. Text that is too long for its
+    column wraps onto more lines, and the row grows to fit (row_h is the height of a one-line row).
+    """
     align = align or ["left"] + ["right"] * (len(header) - 1)
     lefts = [x + width * sum(widths[:i]) for i in range(len(widths))]
+    line_h = size * CELL_LINE / 72
 
-    def cell(yy, i, s, weight, color):
-        xx = lefts[i] + 0.12 if align[i] == "left" else lefts[i] + width * widths[i] - 0.12
-        fig.text(xx / W, yy / H, s, fontsize=size, ha=align[i], va="center", weight=weight, color=color)
-
-    for i, h in enumerate(header):
-        cell(y - row_h / 2, i, h, "bold", NAVY)
-    fig.add_artist(Line2D([x / W, (x + width) / W], [(y - row_h) / H] * 2, transform=fig.transFigure, color=LINE))
-    for r, row in enumerate(rows):
-        top = y - (r + 1) * row_h
-        if r % 2 == 0:
-            fig.add_artist(Rectangle((x / W, (top - row_h) / H), width / W, row_h / H, transform=fig.transFigure,
+    def draw_row(top, cells, weight, color, band=False):
+        wrapped = [wrap_cell(s, width * widths[i], size, weight == "bold") for i, s in enumerate(cells)]
+        height = max(row_h, max(len(w) for w in wrapped) * line_h + (row_h - line_h))
+        if band:
+            fig.add_artist(Rectangle((x / W, (top - height) / H), width / W, height / H, transform=fig.transFigure,
                                      facecolor=BAND, edgecolor="none", zorder=0))
-        for i, s in enumerate(row):
-            cell(top - row_h / 2, i, s, "bold" if r in bold else "normal", TEXT)
-    return y - (len(rows) + 1) * row_h
+        for i, lines in enumerate(wrapped):
+            xx = lefts[i] + CELL_PAD if align[i] == "left" else lefts[i] + width * widths[i] - CELL_PAD
+            fig.text(xx / W, (top - height / 2) / H, "\n".join(lines), fontsize=size, ha=align[i], va="center",
+                     multialignment=align[i], linespacing=CELL_LINE, weight=weight, color=color)
+        return top - height
+
+    top = draw_row(y, header, "bold", NAVY)
+    fig.add_artist(Line2D([x / W, (x + width) / W], [top / H] * 2, transform=fig.transFigure, color=LINE))
+    for r, row in enumerate(rows):
+        top = draw_row(top, row, "bold" if r in bold else "normal", TEXT, band=(r % 2 == 0))
+    return top
 
 
 def chart(fig, x, y, w, h):
@@ -155,7 +183,7 @@ def build(d, path, preview_dir=None):
         (num(mk["Sharpe"]), NAVY, f"Sharpe ratio of the market-adjusted SDF return, {y0}–{y1} ({tstat(mk['t-stat'])})"),
         (num(mk["alpha ann. %"], "{:.1f}") + "%", NAVY, f"Alpha a year against the {len(features)} characteristic factors ({tstat(mk['alpha t (NW)'])})"),
         (f"{small_share:.0f}%", ACCENT, f"Of that return comes from the {small_label} of stocks by market cap"),
-        (f"{cost_all['one-way turnover %/mo']:.0f}%", ACCENT, f"One-way monthly turnover of {DEFAULT_SCORE}; break-even cost {cost_all['break-even cost bps']:.0f} bps"),
+        (f"{cost_all['one-way turnover %/mo']:.0f}%", ACCENT, f"One-way monthly turnover of the {SCORE_LABEL}; break-even cost {cost_all['break-even cost bps']:.0f} bps"),
     ]
     cw = (W - 2 * M - 3 * 0.3) / 4
     for i, (big, color, label) in enumerate(cards):
@@ -163,7 +191,7 @@ def build(d, path, preview_dir=None):
         box(fig, x, 6.9, cw, 3.0)
         fig.text((x + 0.3) / W, 6.55 / H, big, fontsize=44, family=SERIF, weight="bold", color=color, va="top")
         text(fig, x + 0.3, 5.3, label, cw - 0.6, size=15)
-    text(fig, M, 3.4, f"Outside the smallest half of the market (size at or above the 50th percentile), the {DEFAULT_SCORE} "
+    text(fig, M, 3.4, f"Outside the smallest half of the market (size at or above the 50th percentile), the {SCORE_LABEL} "
          f"long/short has a Sharpe ratio of {num(s50)} before costs and {num(s50_net)} after 10 bps a trade.",
          W - 2 * M - 1.5, size=18, color=TEXT)
     deck.save(fig)
@@ -279,8 +307,8 @@ def build(d, path, preview_dir=None):
     defs = [
         ("norm_score", "Node weight × geometric mean of the stock's market-wide characteristic ranks, rank-normalised.", "Original score"),
         ("sdf_weight", "Node weight β spread over the node's stocks by their weight in the node, summed over nodes. Holding it reproduces Return_mkt_adj.", "The SDF portfolio"),
-        ("size_oriented_score", "The same β per node, tilted towards the stocks deepest inside the node (ranks within the parent node, in the split's direction).", "Default score"),
-        ("size_oriented_norm", "size_oriented_score rank-normalised to ±3.5; stocks in no node sit at a neutral score.", "Combining with factors"),
+        (SCORE_LABEL, "The same β per node, tilted towards the stocks deepest inside the node (ranks within the parent node, in the split's direction). size_oriented_score in the result files.", "Default score"),
+        ("score, normalised", "The score rank-normalised to ±3.5; stocks in no node sit at a neutral score.", "Combining with factors"),
     ]
     y = 6.9
     fig.text(M / W, y / H, "Score", fontsize=15, weight="bold", color=NAVY, va="top")
@@ -292,9 +320,9 @@ def build(d, path, preview_dir=None):
         h = len(lines) * 15 * 1.4 / 72 + 0.35
         if i % 2 == 0:
             box(fig, M, y + 0.15, W - 2 * M, h, fill=BAND, edge="none")
-        fig.text((M + 0.12) / W, y / H, name, fontsize=15, weight="bold" if name == DEFAULT_SCORE else "normal", color=TEXT, va="top")
+        fig.text((M + 0.12) / W, y / H, name, fontsize=15, weight="bold" if name == SCORE_LABEL else "normal", color=TEXT, va="top")
         text(fig, M + 3.6, y, desc, 7.4, size=15, color=TEXT)
-        fig.text((M + 11.4) / W, y / H, role, fontsize=15, weight="bold" if name == DEFAULT_SCORE else "normal", color=TEXT, va="top")
+        fig.text((M + 11.4) / W, y / H, role, fontsize=15, weight="bold" if name == SCORE_LABEL else "normal", color=TEXT, va="top")
         y -= h
     text(fig, M, y - 0.4, "The new scores keep each node's total weight equal to its SDF weight; the original score used raw ranks "
          "whatever side of a split a node was on.", W - 2 * M - 1.5, size=17)
@@ -314,7 +342,7 @@ def build(d, path, preview_dir=None):
         ["ICIR"] + [num(full[s]["ICIR"]) for s in scores],
         ["Factor R²"] + [num(full[s]["factor R2"]) for s in scores],
     ]
-    short = {"size_oriented_score": "Size-orient.", "sdf_weight": "SDF weight", "norm_score": "Original"}
+    short = {"size_oriented_score": "Score", "sdf_weight": "SDF weight", "norm_score": "Original"}
     y = table(fig, 9.9, 6.9, W - M - 9.9, ["All stocks"] + [short[s] for s in scores], rows,
               [0.31] + [0.23] * len(scores), size=13)
     text(fig, 9.9, y - 0.25, "Score-weighted long/short (100% long, 100% short) on same-month returns, before costs.",
@@ -332,9 +360,9 @@ def build(d, path, preview_dir=None):
     fig = deck.slide("Scores by period", "Score long/short Sharpe ratios by period")
     rows = [[p if p != "Full" else f"{y0}–{y1}"] + [num(perf.loc[("all stocks", s, p), "Sharpe"]) for s in scores]
             + [num(perf.loc[("all stocks", DEFAULT_SCORE, p), "alpha t (NW)"], "{:.1f}"), tilt(p)] for p in ["Full"] + periods]
-    y = table(fig, M, 6.9, W - 2 * M, ["Period"] + [short[s] for s in scores] + ["Size-orient. alpha t", "Tilt gain, %/mo (t)"],
+    y = table(fig, M, 6.9, W - 2 * M, ["Period"] + [short[s] for s in scores] + ["Score alpha t", "Tilt gain, %/mo (t)"],
               rows, [0.16, 0.15, 0.15, 0.14, 0.18, 0.22], size=17, row_h=0.6, bold=(0,))
-    text(fig, M, y - 0.4, f"Tilt gain is {DEFAULT_SCORE} minus sdf_weight, with a Newey-West t: what the within-node tilt adds "
+    text(fig, M, y - 0.4, f"Tilt gain is the {SCORE_LABEL} minus sdf_weight, with a Newey-West t: what the within-node tilt adds "
          "to the plain SDF weights.", W - 2 * M - 1.5, size=17)
     deck.save(fig)
 
@@ -368,12 +396,12 @@ def build(d, path, preview_dir=None):
     fig = deck.slide("Scores within size groups", "Score long/short Sharpe ratio within each quintile")
     mc.plot_size_sharpe(chart(fig, M + 0.7, 1.9, W - 2 * M - 0.8, 4.9), d)
     sh = [perf.loc[(f"size {b}", DEFAULT_SCORE, "Full"), "Sharpe"] for b in buckets]
-    text(fig, M, 1.4, f"{DEFAULT_SCORE}: Sharpe ratio {num(sh[0])} in the smallest quintile and {num(sh[-1])} in the largest.",
+    text(fig, M, 1.4, f"The {SCORE_LABEL}: Sharpe ratio {num(sh[0])} in the smallest quintile and {num(sh[-1])} in the largest.",
          W - 2 * M, size=17, color=TEXT)
     deck.save(fig)
 
     # 15. turnover and costs
-    fig = deck.slide("Turnover and costs", f"{DEFAULT_SCORE} after trading costs")
+    fig = deck.slide("Turnover and costs", f"The {SCORE_LABEL} after trading costs")
     universes = [u for u in ["all stocks", f"size {buckets[0]}", "size >= 20th pct", "size >= 50th pct", "top 1000"]
                  if (u, DEFAULT_SCORE) in costs.index]
     rows = []
@@ -448,7 +476,7 @@ def build(d, path, preview_dir=None):
 
 
 if __name__ == "__main__":
-    out = mc.REPO / "presentation" / DataPaths().result_file("backtest", SUFFIX, REGION, UNIVERSE, "pdf").name
+    out = mc.REPO / "presentation" / DataPaths().result_file("backtest", REGION, UNIVERSE, VARIANT, "pdf").name
     preview = None
     if "--png" in sys.argv:
         preview = mc.REPO / "presentation" / "deck_preview"

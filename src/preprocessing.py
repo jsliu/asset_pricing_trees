@@ -296,13 +296,17 @@ def read_char_data(features, universe=None, ret_name='ret'):
     """
     Read the monthly characteristic CSVs (date x "<CHAR>.<permno>" wide tables) into a
     (permno, date) panel with the features, returns (ret_name) and size (mkt_cap).
-    Files are matched case-insensitively as <name>.csv, or <name>_<universe>.csv if universe is given.
+    Files are matched case-insensitively as <name>.csv, or <name>_<universe>.csv if universe is given; a characteristic
+    without a universe file is read from <name>.csv (the universe files hold the same values, masked to the universe,
+    and rows outside it are dropped with the universe's returns and market caps).
     """
     path = DataPaths()
     files = {f.stem.lower(): f for f in path.input_data.glob('*.csv')}
     columns = {}
     for col_name, file_name in [(ret_name, 'ret'), ('mkt_cap', 'lme')] + [(f, f) for f in features]:
         stem = file_name if universe is None else f'{file_name}_{universe}'
+        if stem.lower() not in files and col_name not in (ret_name, 'mkt_cap'):
+            stem = file_name
         wide = pd.read_csv(files[stem.lower()], index_col=0)
         wide.columns = wide.columns.str.split('.').str[-1].astype(int)
         columns[col_name] = wide.stack()

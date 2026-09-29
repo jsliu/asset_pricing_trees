@@ -4,11 +4,11 @@ company-data regions (GL, US, ...) or both. SDF returns, factor exposure, the he
 turnover controls, stock scores and size concentration. Runs whose results are missing are left out; values a run
 does not have (a period outside its sample, an analysis not run) show 'n/a'.
 
-For each run, run backtest_report.py, hedge_analysis.py and turnover_controls.py first (make_presentation.py does
+For each run, run analysis/backtest_report.py, hedge_analysis.py and turnover_controls.py first (make_presentation.py does
 all of it), then from the project root:
     python presentation/make_comparison.py [--runs RUN ...] [--output NAME.pdf] [--png]
-A run is written [REGION@][UNIVERSE][:SUFFIX], e.g. full, largecap:vw, GL@ or GL@:vw; without --runs the runs are
-RUNS in make_presentation.py. Output: presentation/backtest_comparison.pdf unless --output is given.
+A run is written [REGION@][UNIVERSE][:vw], e.g. full, largecap:vw (value-weighted), GL@ or GL@:vw; without --runs the
+runs are RUNS in make_presentation.py. Output: presentation/backtest_comparison.pdf unless --output is given.
 """
 import argparse
 
@@ -18,44 +18,52 @@ import pandas as pd
 
 import make_charts as mc
 from make_deck import (Deck, M, W, NAVY, ACCENT, ACCENT_LIGHT, TEXT, BODY, ON_DARK, BG, SERIF,
-                       text, table, box, chart, num)
-from src.constants import DataPaths
+                       text, table, table_height, box, chart, num)
+from src.constants import DataPaths, parse_variant
 
 UNIVERSE_LABELS = {"full": "Full", "largecap": "Large cap", "largecap001": "Large cap 0.01%"}
 UNIVERSE_RULES = {"full": "All stocks", "largecap": "Market cap ≥ 0.001% of the total",
                   "largecap001": "Market cap ≥ 0.01% of the total"}
 COLORS = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#4a3aa7", "#e34948"]  # categorical 1-8
 SCORE = "size_oriented_score"
+SCORE_LABEL = "Score"          # name of SCORE on the slides
 NA = "n/a"
 H_ = 9
 
 
 def parse_run(token):
-    """'[REGION@][UNIVERSE][:SUFFIX]' -> (region, universe, suffix)."""
-    body, _, suffix = token.partition(":")
+    """'[REGION@][UNIVERSE][:vw]' -> (region, universe, variant)."""
+    body, _, variant = token.partition(":")
     region, at, universe = body.rpartition("@") if "@" in body else ("", "", body)
-    return region or None, universe or None, suffix or "std"
+    return region or None, universe or None, variant or None
 
 
-def run_token(region, universe, suffix):
-    return (f"{region}@" if region else "") + (universe or "") + f":{suffix}"
+def run_token(region, universe, variant):
+    return (f"{region}@" if region else "") + (universe or "") + (f":{variant}" if variant else "")
 
 
-def describe(region, universe, suffix):
+TAG_LABELS = {"vw": "VW", "slow3": "slow d3", "screen3": "screen d3", "val": "val"}
+TAG_DESCRIPTIONS = {"slow3": "slow characteristics, depth 3", "screen3": "screened characteristics, depth 3",
+                    "val": "validated pruning, 20y window"}
+
+
+def describe(region, universe, variant):
     """Column label and description of a run."""
-    weighting = "value-weighted" if suffix == "vw" else "equal-weighted"
+    equal_weighted, tree, prune = parse_variant(variant)
     name = UNIVERSE_LABELS.get(universe, universe) if universe else ("All regions" if region == "ALL" else region)
     if region and universe:
         name = f"{region} {name}"
-    label = name + ("" if suffix == "std" else " VW" if suffix == "vw" else f" ({suffix})")
+    tags = variant.split("_") if variant else []
+    label = " ".join([name] + [TAG_LABELS.get(t, t) for t in tags])
     rule = UNIVERSE_RULES.get(universe, f"Universe {universe}") if universe else f"Company data, region {region}"
-    return label, f"{rule}, {weighting}"
+    extras = [TAG_DESCRIPTIONS[t] for t in (tree, prune) if t in TAG_DESCRIPTIONS]
+    return label, ", ".join([rule, "equal-weighted" if equal_weighted else "value-weighted"] + extras)
 
 
-def load(region, universe, suffix):
+def load(region, universe, variant):
     """Report tables of one run, or None if the run is missing."""
     paths = DataPaths()
-    rep = paths.result_file("report", suffix, region, universe, ext=None)
+    rep = paths.result_file("report", region, universe, variant, ext=None)
     if not (rep / "sdf_returns_by_period.csv").exists():
         return None
 
@@ -64,7 +72,7 @@ def load(region, universe, suffix):
         return pd.read_csv(f).set_index(index) if f.exists() else None
 
     return {
-        "rets": pd.read_csv(paths.result_file("ret", suffix, region, universe), index_col=0),
+        "rets": pd.read_csv(paths.result_file("ret", region, universe, variant), index_col=0),
         "sdf": pd.read_csv(rep / "sdf_returns_by_period.csv").set_index(["series", "period"]),
         "loadings": pd.read_csv(rep / "sdf_factor_loadings.csv").set_index(["series", "stat"]),
         "perf": pd.read_csv(rep / "score_long_short_by_period.csv").set_index(["universe", "score", "period"]),
@@ -72,6 +80,9 @@ def load(region, universe, suffix):
         "contrib": pd.read_csv(rep / "sdf_return_by_size_by_period.csv").set_index(["size bucket", "period"]),
         "exposure": pd.read_csv(rep / "sdf_weight_by_size.csv", index_col=0),
         "hedge": opt("hedge_costs_by_period.csv", ["portfolio", "period"]),
+        "hscore": opt("hedged_score_nodes_by_period.csv", ["portfolio", "period"]),
+        "neutral": opt("neutral_score_by_period.csv", ["score", "period"]),
+        "nsum": opt("neutral_score_summary.csv", ["Unnamed: 0"]),
         "ratios": opt("hedge_ratios_summary.csv", ["Unnamed: 0"]),
         "controls": opt("turnover_controls_summary.csv", ["portfolio", "control"]),
     }
@@ -95,6 +106,29 @@ def get(frame, key, col, fmt="{:.2f}", unit=""):
 def listing(runs, fn):
     """'x (run 1), y (run 2), ...' for the findings."""
     return ", ".join(f"{fn(r)} ({r['label']})" for r in runs)
+
+
+def fit_size(header, rows, widths, space, options=((15, 0.5), (14, 0.44), (13, 0.4), (12, 0.34), (11, 0.3)), bold=()):
+    """Largest (font size, row height) in options at which the table is at most `space` inches tall."""
+    for size, row_h in options:
+        if table_height(W - 2 * M, header, rows, widths, size, row_h, bold) <= space:
+            return size, row_h
+    return options[-1]
+
+
+def stacked_tables(fig, first, second, header, widths, top=6.95, bottom=0.85, bold=(0,)):
+    """Two titled tables, one under the other, in the largest font and row height that fit above the footer.
+    first/second: (title, rows)."""
+    width = W - 2 * M
+    for size, row_h in [(15, 0.46), (14, 0.42), (13, 0.36), (12, 0.32), (11, 0.28)]:
+        need = 0.35 + table_height(width, header, first[1], widths, size, row_h, bold) + 0.65 \
+            + table_height(width, header, second[1], widths, size, row_h, bold)
+        if top - need >= bottom:
+            break
+    fig.text(M / W, top / H_, first[0], fontsize=15, weight="bold", color=ACCENT, va="top")
+    y = table(fig, M, top - 0.35, width, header, first[1], widths, size=size, row_h=row_h, bold=bold)
+    fig.text(M / W, (y - 0.3) / H_, second[0], fontsize=15, weight="bold", color=ACCENT, va="top")
+    table(fig, M, y - 0.65, width, header, second[1], widths, size=size, row_h=row_h, bold=bold)
 
 
 def plot_cumulative(ax, series, labels, colors, ylabel):
@@ -124,6 +158,10 @@ def build(runs, path, preview_dir=None):
     col_w = [0.22] + [0.78 / n] * n
     wide_w = [0.3] + [0.7 / n] * n
     mk_key, hk = ("Return_mkt_adj", "Full"), ("Hedged (Return)", "Full")
+    hscore = lambda r, p, col, fmt="{:.2f}": get(r["d"]["hscore"], (f"{SCORE} long/short, hedged on rebuilt history", p),
+                                                  col, fmt)
+    neutral = lambda r, p, col, fmt="{:.2f}": get(r["d"]["neutral"], ("neutral", p), col, fmt)
+    nsum = lambda r, col, fmt="{:.2f}", unit="": get(r["d"]["nsum"], col, "neutral", fmt, unit)
     sdf = lambda r, series, p, col, fmt="{:.2f}": get(r["d"]["sdf"], (series, p), col, fmt)
     hedge = lambda r, key, col, fmt="{:.2f}": get(r["d"]["hedge"], key, col, fmt)
     score = lambda r, p, col, fmt="{:.2f}": get(r["d"]["perf"], ("all stocks", SCORE, p), col, fmt)
@@ -156,9 +194,13 @@ def build(runs, path, preview_dir=None):
         rows.append([r["label"], r["desc"], f"{rets.index.min() // 10000}–{rets.index.max() // 10000}",
                      cost(r, "stocks scored/mo", "{:,.0f}"),
                      f"{ex['median mkt_cap'].iloc[0]:,.0f}", f"{ex['median mkt_cap'].iloc[-1]:,.0f}"])
-    y = table(fig, M, 6.9, W - 2 * M, ["Run", "Data and weighting", "Sample", "Stocks", "Smallest Q1", "Largest Q5"],
-              rows, [0.15, 0.4, 0.12, 0.1, 0.115, 0.115], align=["left", "left", "left", "right", "right", "right"],
-              size=15, row_h=0.55)
+    header = ["Run", "Data and weighting", "Sample", "Stocks", "Smallest Q1", "Largest Q5"]
+    widths = [0.15, 0.4, 0.12, 0.1, 0.115, 0.115]
+    for size, row_h in [(15, 0.55), (14, 0.48), (13, 0.42), (12, 0.36), (11, 0.32)]:   # largest that leaves room for the note
+        if 6.9 - table_height(W - 2 * M, header, rows, widths, size, row_h) >= 1.9:
+            break
+    y = table(fig, M, 6.9, W - 2 * M, header, rows, widths, align=["left", "left", "left", "right", "right", "right"],
+              size=size, row_h=row_h)
     text(fig, M, y - 0.4, "Sample = out-of-sample years. Stocks = median number scored a month. Q1/Q5 = median market cap of the "
          "smallest and largest size quintile within each run, in the units of its data. Every run: yearly refits, no look-ahead.",
          W - 2 * M - 1.5, size=15)
@@ -175,10 +217,13 @@ def build(runs, path, preview_dir=None):
         ("Hedged: break-even, bps", lambda r: hedge(r, hk, "break-even cost bps", "{:.0f}")),
         ("Score long/short: Sharpe", lambda r: score(r, "Full", "Sharpe")),
         ("Score: Sharpe after 10 bps", lambda r: cost(r, "Sharpe after 10bps")),
+        ("Neutral score: Sharpe", lambda r: neutral(r, "Full", "Sharpe")),
+        ("Neutral score: Sharpe after 10 bps", lambda r: neutral(r, "Full", "Sharpe after 10bps")),
+        ("Hedged score: Sharpe after 10 bps", lambda r: hscore(r, "Full", "Sharpe after 10bps")),
         ("Return from smallest 40%", small_share),
     ]
     rows = [[name] + [f(r) for r in runs] for name, f in metrics]
-    table(fig, M, 6.9, W - 2 * M, ["Full sample"] + labels, rows, wide_w, size=15, row_h=0.5, bold=(3, 4))
+    table(fig, M, 6.9, W - 2 * M, ["Full sample"] + labels, rows, wide_w, size=15, row_h=0.43, bold=(3, 4, 8, 9, 10))
     deck.save(fig)
 
     # 4. key findings
@@ -190,13 +235,14 @@ def build(runs, path, preview_dir=None):
     fig = deck.slide("Key findings", "Key results by run")
     items = [
         ("Market-adjusted SDF", "Sharpe ratio: " + listing(runs, lambda r: sdf(r, *mk_key, "Sharpe")) + "."),
-        ("Factor exposure", "Factor R²: " + listing(runs, lambda r: sdf(r, *mk_key, "factor R2"))
-         + ". Alpha t: " + listing(runs, lambda r: sdf(r, *mk_key, "alpha t (NW)", "{:.1f}")) + "."),
+        ("Factor exposure", "Alpha t against the characteristic factors: "
+         + listing(runs, lambda r: sdf(r, *mk_key, "alpha t (NW)", "{:.1f}")) + "."),
         ("Factor-hedged SDF", "Sharpe ratio after removing the factor exposure: "
          + listing(runs, lambda r: sdf(r, "Return", "Full", "Sharpe")) + "."),
         ("Best after costs", f"{best['label']}: hedged Sharpe {hedge(best, hk, 'Sharpe after 10bps')} after 10 bps "
          f"(break-even {hedge(best, hk, 'break-even cost bps', '{:.0f}')} bps)."),
-        ("Stock scores", "Score long/short Sharpe after 10 bps: " + listing(runs, lambda r: cost(r, "Sharpe after 10bps")) + "."),
+        ("Stock scores", "Factor-neutral score long/short, Sharpe after 10 bps: "
+         + listing(runs, lambda r: neutral(r, "Full", "Sharpe after 10bps")) + "."),
         ("Latest period", f"Market-adjusted alpha t in the {last}: "
          + listing(runs, lambda r: sdf(r, "Return_mkt_adj", last, "alpha t (NW)", "{:.1f}")) + "."),
     ]
@@ -205,7 +251,7 @@ def build(runs, path, preview_dir=None):
         x, top = M + (i % 3) * (cw + 0.3), 6.9 - (i // 3) * 2.75
         box(fig, x, top, cw, 2.45)
         fig.text((x + 0.3) / W, (top - 0.3) / H_, head, fontsize=17, weight="bold", color=NAVY, va="top")
-        text(fig, x + 0.3, top - 0.85, body, cw - 0.6, size=13 if n > 4 else 14)
+        text(fig, x + 0.3, top - 0.85, body, cw - 0.6, size=14 if n <= 4 else 13 if n <= 6 else 12)
     deck.save(fig)
 
     # 5. cumulative SDF returns
@@ -218,13 +264,11 @@ def build(runs, path, preview_dir=None):
 
     # 6. SDF by period
     fig = deck.slide("SDF by period", "Market-adjusted SDF: Sharpe ratio and alpha by period")
-    row_h = 0.42 if len(ps) <= 6 else 0.34
-    fig.text(M / W, 6.95 / H_, "Sharpe ratio", fontsize=15, weight="bold", color=ACCENT, va="top")
-    rows = [[per(p)] + [sdf(r, "Return_mkt_adj", p, "Sharpe") for r in runs] for p in ps]
-    y = table(fig, M, 6.6, W - 2 * M, ["Period"] + labels, rows, col_w, size=14, row_h=row_h, bold=(0,))
-    fig.text(M / W, (y - 0.3) / H_, "Alpha t-stat against the characteristic factors", fontsize=15, weight="bold", color=ACCENT, va="top")
-    rows = [[per(p)] + [sdf(r, "Return_mkt_adj", p, "alpha t (NW)", "{:.1f}") for r in runs] for p in ps]
-    table(fig, M, y - 0.65, W - 2 * M, ["Period"] + labels, rows, col_w, size=14, row_h=row_h, bold=(0,))
+    stacked_tables(fig,
+                   ("Sharpe ratio", [[per(p)] + [sdf(r, "Return_mkt_adj", p, "Sharpe") for r in runs] for p in ps]),
+                   ("Alpha t-stat against the characteristic factors",
+                    [[per(p)] + [sdf(r, "Return_mkt_adj", p, "alpha t (NW)", "{:.1f}") for r in runs] for p in ps]),
+                   ["Period"] + labels, col_w)
     deck.save(fig)
 
     # 7. factor exposure
@@ -237,8 +281,8 @@ def build(runs, path, preview_dir=None):
 
     rows = [[f] + [loading(r, f) for r in runs] for f in factors]
     rows.append(["Factor R²"] + [sdf(r, *mk_key, "factor R2") for r in runs])
-    table(fig, M, 6.9, W - 2 * M, ["Factor"] + labels, rows, col_w, size=15 if len(factors) <= 10 else 13,
-          row_h=0.5 if len(factors) <= 10 else 0.4, bold=(len(factors),))
+    size, row_h = fit_size(["Factor"] + labels, rows, col_w, 6.9 - 0.85, bold=(len(factors),))
+    table(fig, M, 6.9, W - 2 * M, ["Factor"] + labels, rows, col_w, size=size, row_h=row_h, bold=(len(factors),))
     deck.save(fig)
 
     # 8. hedged portfolio after costs
@@ -256,18 +300,19 @@ def build(runs, path, preview_dir=None):
 
     # 9. hedged by period after 10 bps
     fig = deck.slide("Tradable portfolio by period", "Hedged SDF: Sharpe ratio after 10 bps by period")
-    rows = [[per(p)] + [hedge(r, ("Hedged (Return)", p), "Sharpe after 10bps") for r in runs] for p in ps]
-    y = table(fig, M, 6.9, W - 2 * M, ["Period"] + labels, rows, col_w, size=15, row_h=0.46 if len(ps) <= 6 else 0.36, bold=(0,))
-    rows = [[per(p)] + [hedge(r, ("Hedged (Return)", p), "break-even cost bps", "{:.0f}") for r in runs] for p in ps]
-    fig.text(M / W, (y - 0.3) / H_, "Break-even cost, bps", fontsize=15, weight="bold", color=ACCENT, va="top")
-    table(fig, M, y - 0.65, W - 2 * M, ["Period"] + labels, rows, col_w, size=14, row_h=0.4 if len(ps) <= 6 else 0.32, bold=(0,))
+    stacked_tables(fig,
+                   ("Sharpe ratio after 10 bps",
+                    [[per(p)] + [hedge(r, ("Hedged (Return)", p), "Sharpe after 10bps") for r in runs] for p in ps]),
+                   ("Break-even cost, bps",
+                    [[per(p)] + [hedge(r, ("Hedged (Return)", p), "break-even cost bps", "{:.0f}") for r in runs] for p in ps]),
+                   ["Period"] + labels, col_w)
     deck.save(fig)
 
     # 10. hedge ratios
     fig = deck.slide("Hedge", "Factor exposure the hedge removes (mean hedge ratio)")
     rows = [[f] + [get(r["d"]["ratios"], f, "mean h", "{:.3f}") for r in runs] for f in factors]
-    y = table(fig, M, 6.9, W - 2 * M, ["Factor"] + labels, rows, col_w, size=15 if len(factors) <= 10 else 13,
-              row_h=0.5 if len(factors) <= 10 else 0.4)
+    size, row_h = fit_size(["Factor"] + labels, rows, col_w, 6.9 - 1.9)          # room for the note below
+    y = table(fig, M, 6.9, W - 2 * M, ["Factor"] + labels, rows, col_w, size=size, row_h=row_h)
     text(fig, M, y - 0.35, "Exposure of the SDF to each factor portfolio, averaged over refits; the hedge sells it. A negative value "
          "means the SDF is short that factor.", W - 2 * M - 1.5, size=15)
     deck.save(fig)
@@ -287,7 +332,7 @@ def build(runs, path, preview_dir=None):
     deck.save(fig)
 
     # 12. stock scores
-    fig = deck.slide("Stock scores", f"{SCORE} long/short by run")
+    fig = deck.slide("Stock scores", f"{SCORE_LABEL} long/short by run")
     stats = [("Sharpe (gross)", lambda r: score(r, "Full", "Sharpe")),
              ("Alpha t", lambda r: score(r, "Full", "alpha t (NW)", "{:.1f}")),
              ("ICIR", lambda r: score(r, "Full", "ICIR")),
@@ -299,6 +344,25 @@ def build(runs, path, preview_dir=None):
     y = table(fig, M, 6.9, W - 2 * M, ["Full sample"] + labels, rows, wide_w, size=16, row_h=0.55)
     text(fig, M, y - 0.35, "Score-weighted long/short (100% long, 100% short) on same-month returns, before costs unless stated. "
          "Compare its turnover and break-even with the hedged SDF positions.", W - 2 * M - 1.5, size=15)
+    deck.save(fig)
+
+    # 12b. factor-neutral score
+    fig = deck.slide("Stock scores", f"{SCORE_LABEL} long/short, neutral to the factor characteristics")
+    stats = [("Sharpe (gross)", lambda r: neutral(r, "Full", "Sharpe")),
+             ("  before neutralising", lambda r: get(r["d"]["neutral"], ("raw", "Full"), "Sharpe")),
+             ("Alpha t", lambda r: neutral(r, "Full", "alpha t (NW)", "{:.1f}")),
+             ("Factor R² left", lambda r: neutral(r, "Full", "factor R2")),
+             ("ICIR", lambda r: neutral(r, "Full", "ICIR")),
+             ("One-way turnover", lambda r: nsum(r, "one-way turnover %/mo", "{:.0f}", "%")),
+             ("Break-even, bps", lambda r: nsum(r, "break-even bps", "{:.0f}")),
+             ("Sharpe after 10 bps", lambda r: neutral(r, "Full", "Sharpe after 10bps")),
+             (f"Sharpe after 10 bps, {last}", lambda r: neutral(r, last, "Sharpe after 10bps")),
+             ("Hedged instead: after 10 bps", lambda r: hscore(r, "Full", "Sharpe after 10bps"))]
+    rows = [[name] + [f(r) for r in runs] for name, f in stats]
+    y = table(fig, M, 6.9, W - 2 * M, ["Full sample"] + labels, rows, wide_w, size=15, row_h=0.44, bold=(0, 7))
+    text(fig, M, y - 0.3, "Each month the score is regressed across stocks on the nine factor characteristics and the "
+         "residual is the new score. Last row: the raw long/short hedged like the SDF, with each model's factor betas "
+         "from its score rebuilt over the previous 10 years, the hedge traded.", W - 2 * M - 1.5, size=14)
     deck.save(fig)
 
     # 13. size concentration
@@ -356,11 +420,11 @@ def main():
         raise SystemExit(f"At most {len(COLORS)} runs fit in one comparison; got {len(specs)}")
 
     runs = []
-    for (region, universe, suffix), color in zip(specs, COLORS):
-        label, desc = describe(region, universe, suffix)
-        d = load(region, universe, suffix)
+    for (region, universe, variant), color in zip(specs, COLORS):
+        label, desc = describe(region, universe, variant)
+        d = load(region, universe, variant)
         if d is None:
-            print(f"Skipping {label}: no report for {run_token(region, universe, suffix)} (run backtest_report.py first)")
+            print(f"Skipping {label}: no report for {run_token(region, universe, variant)} (run analysis/backtest_report.py first)")
             continue
         runs.append({"label": label, "desc": desc, "color": color, "d": d})
     if not runs:

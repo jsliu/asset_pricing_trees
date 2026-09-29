@@ -9,7 +9,7 @@ from tqdm import tqdm
 # from itertools import combinations
 
 from src.utils import build_tree_portfolio, build_comb
-from src.constants import Columns, Chars, DataPaths, Parameters
+from src.constants import Columns, Chars, DataPaths, Parameters, TREE_SETUPS, run_variant
 from src.functions import get_residuals
 from src.preprocessing import cap_weight, read_db_data, read_big_universe, read_backtest_data
 
@@ -43,7 +43,10 @@ def run_pipeline(
     region: str = None,
     universe: str = None,
     variant: str = None,
+    tree_chars: list = None,
+    depth: int = Parameters.tree_depth,
 ):
+    """Build and save the tree portfolios; tree_chars limits the characteristics (None = all), depth the tree depth."""
     paths = DataPaths()
 
     # --------------------------------------------------
@@ -52,6 +55,7 @@ def run_pipeline(
     char_combs = list(chars.combinations_of_chars(
         k=Parameters.n_chars,
         exclude_chars=exclude_chars,
+        include_chars=tree_chars,
     ))
     char_combs = [(chars.lme, ) + s for s in char_combs]
 
@@ -89,17 +93,17 @@ def run_pipeline(
             comb_pl,
             feature_sequence,
             n_split=Parameters.n_splits,
-            tree_depth=Parameters.tree_depth
+            tree_depth=depth
         )
 
         # --------------------------------------------------
         # 6. Filtering logic
         # --------------------------------------------------
-        depth_col = f"{Columns.port_col}{Columns.col_sep}{Parameters.tree_depth}"
+        depth_col = f"{Columns.port_col}{Columns.col_sep}{depth}"
 
         mask_one = pl.col(Columns.port_col) == depth_col
         mask_two = pl.col(Columns.comb_col).is_in(
-            [Columns.col_sep.join([v] * Parameters.tree_depth)
+            [Columns.col_sep.join([v] * depth)
              for v in feature_sequence]
         )
         mask_three = pl.col(Columns.port_col) == f"{Columns.port_col}{Columns.col_sep}0"
@@ -126,7 +130,10 @@ if __name__ == '__main__':
     # characteristic files: regions = [None] with universes = ['full', 'largecap', 'largecap001']
     regions = [None]
     universes = ['largecap', ]
-    EQUAL_WEIGHTED = True      # False: value-weighted trees are saved with the 'vw' variant in their name
+    EQUAL_WEIGHTED = True      # False: value-weighted trees, saved as <comb>_<universe>_vw.parquet
+    TREE_TAG = None            # a tree set-up in TREE_SETUPS (src/constants.py), e.g. 'slow3': slow characteristics,
+                               # depth 3, saved as <comb>_<universe>_slow3.parquet
+    setup = TREE_SETUPS[TREE_TAG]
     for region, universe in product(regions, universes):
         label = paths.label(region, universe)
         ret_name = "gross_returns" if universe is None else "ret"
@@ -134,7 +141,7 @@ if __name__ == '__main__':
         print(f"Loading base characteristics in {label}")
 
         features = list(chars.__dict__.values())[:-2]
-        data = read_backtest_data(features, ret_name, region=region, universe=universe)
+        data = read_backtest_data(list(dict.fromkeys(features + (setup['chars'] or []))), ret_name, region=region, universe=universe)
         # data = read_db_data(region_=region, features=features, ret_name=ret_name, data_saved=data_saved)
         # data = read_big_universe(ret_name=ret_name, features=features, features_direction=[1, -1, -1, 1, 1, -1, -1, -1, 1, -1])
 
@@ -143,5 +150,5 @@ if __name__ == '__main__':
         print(f"Start building the trees in {label} given the combinations of features")
         # if alwasy use lme as a feature, exlucde it firslty
         run_pipeline(data_pl, ret_and_mcap, exclude_chars=[chars.returns, chars.lme], region=region, universe=universe,
-                     variant=None if EQUAL_WEIGHTED else 'vw')
+                     variant=run_variant(EQUAL_WEIGHTED, TREE_TAG), tree_chars=setup['chars'], depth=setup['depth'])
 # %%
