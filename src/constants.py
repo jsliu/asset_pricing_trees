@@ -75,38 +75,7 @@ class Chars:
     st_rev: str = 'st_rev'
     lt_rev: str = 'lt_rev'
     lrunover: str = 'lturnover'
-
-    # val: str = 'val'
-    # qual: str = 'qual'
-    # trd: str = 'trd'
-    # sen: str = 'sen'
-    # fcf: str = 'fcf_rank'
-    
-    # capital_structure: str = "cap_structure"
-    # growth: str = "growth"
-    # profitability: str = "profitability"
-    # accrual: str = "accrual"
-    # investment: str = "investment"
-    # dividend_yield: str = "dy_rank"
-    # book_yield: str = "by_rank"
-    # forward_earnings_yield: str = "fy1_ey_rank"
-    # ebidta_to_ev: str = "ee_no_fin_rank"
-    # free_cash_flow: str = "fcf_rank"
-    # stock_sentiment: str = "senstock"
-    # industry_sentiment: str = "senind"
-    # stock_trend: str = "trdstock"
-    # industry_trend: str = "trdind"
-
-    # book_yield: str = "by"
-    # accrual: str = "accrual_level"
-    # vol: str = "vol"
-    # momemtum: str = "mom_1y1m"
-    # op: str = "Oper_Income_Total_Capital"
-    # turnover: str = "turnover_3m"
-    # reversal: str = "mom_1m"
-    # lt_rev: str = "mom_6m"
-    # inven_turnover: str = "Inven_Turnover" 
-    # illiquid: str = 'X3MILLIQ'
+    # the company-data characteristic sets are tree set-ups: 'EI', 'EI_sub' and 'daily' in TREE_SETUPS
     lme: str = "lme"
     returns: str = 'ret'
 
@@ -168,13 +137,44 @@ def tree_combinations(k: int = Parameters.n_chars, chars: list = None) -> list:
     return [(c.lme,) + comb for comb in c.combinations_of_chars(k=k, exclude_chars=[c.returns, c.lme], include_chars=chars)]
 
 
-# Tree set-ups: tag in the tree and output file names -> characteristics the trees are built from (None = every
-# characteristic in Chars) and tree depth. Tags have no '_', so a file name can be split back into its parts.
+# company-data characteristic sets
+EI_CHARS = ['val', 'qual', 'trd', 'sen', 'fcf_rank']                    # composite factors
+EI_SUB_CHARS = [                                                        # their sub-factors
+    'cap_structure', 'growth', 'profitability', 'accrual', 'investment',
+    'dy_rank',          # dividend yield
+    'by_rank',          # book yield
+    'fy1_ey_rank',      # forward earnings yield
+    'ee_no_fin_rank',   # EBITDA to EV
+    'fcf_rank',         # free cash flow
+    'senstock', 'senind',   # stock and industry sentiment
+    'trdstock', 'trdind',   # stock and industry trend
+]
+DAILY_CHARS = [                                                         # characteristics from daily data
+    'by',                           # book yield
+    'accrual_level',
+    'vol',
+    'mom_1y1m',                     # momentum
+    'Oper_Income_Total_Capital',    # operating profitability
+    'turnover_3m',
+    'mom_1m',                       # short-term reversal
+    'mom_6m',                       # long-term reversal
+    'Inven_Turnover',               # inventory turnover
+    'X3MILLIQ',                     # illiquidity
+]
+
+# Tree set-ups: tag in the tree and output file names -> 'chars', the characteristics the trees are built from
+# (None = every characteristic in Chars), 'depth', the tree depth, and 'factors', the characteristics of the factor
+# portfolios the run is residualised on and hedged with (absent = those in Chars, see factor_chars).
+# A tag may contain '_' (parse_variant matches the known tags).
 TREE_SETUPS = {
     None: {'chars': None, 'depth': Parameters.tree_depth},
     'slow3': {'chars': ['ac', 'beme', 'r12_2', 'op', 'investment', 'lt_rev'], 'depth': 3},   # slow-moving, shallower
     # best large-cap long/short with the least decay (analysis/characteristic_screen.py), SUV swapped for beme
     'screen3': {'chars': ['investment', 's2p', 'prof', 'beme', 'cf', 'ol', 'noa', 'd2a', 'lt_rev'], 'depth': 3},
+    # company data (regions): trees and factors on the same characteristics
+    'EI': {'chars': EI_CHARS, 'depth': Parameters.tree_depth, 'factors': EI_CHARS},
+    'EI_sub': {'chars': EI_SUB_CHARS, 'depth': Parameters.tree_depth, 'factors': EI_SUB_CHARS},
+    'daily': {'chars': DAILY_CHARS, 'depth': Parameters.tree_depth, 'factors': DAILY_CHARS},
 }
 # Pruning set-ups: tag in the output file names -> options of prune_trees.prune()
 PRUNE_SETUPS = {
@@ -189,11 +189,31 @@ def run_variant(equal_weighted: bool = True, tree_tag: str = None, prune_tag: st
 
 
 def parse_variant(variant: str) -> tuple:
-    """(equal_weighted, tree_tag, prune_tag) of a run's file-name part."""
-    parts = variant.split('_') if variant else []
-    tree = next((p for p in parts if p in TREE_SETUPS), None)
-    prune = next((p for p in parts if p in PRUNE_SETUPS), None)
-    return 'vw' not in parts, tree, prune
+    """(equal_weighted, tree_tag, prune_tag) of a run's file-name part: 'vw', a tree tag and a pruning tag, in
+    that order and joined by '_', each optional. Tags are matched whole, longest first, so they may contain '_'."""
+    rest = variant or ''
+    equal_weighted = not (rest == 'vw' or rest.startswith('vw_'))
+    if not equal_weighted:
+        rest = rest[3:]
+    tree = next((t for t in sorted(filter(None, TREE_SETUPS), key=len, reverse=True)
+                 if rest == t or rest.startswith(t + '_')), None)
+    if tree:
+        rest = rest[len(tree) + 1:]
+    prune = rest or None
+    if prune not in PRUNE_SETUPS:
+        raise ValueError(f'Unknown run variant {variant!r}: tree set-ups {list(filter(None, TREE_SETUPS))}, '
+                         f'pruning set-ups {list(filter(None, PRUNE_SETUPS))}')
+    return equal_weighted, tree, prune
+
+
+def factor_chars(tree_tag: str = None) -> list:
+    """Characteristics of the factor portfolios a run with this tree set-up is residualised on and hedged with:
+    the set-up's 'factors', else every characteristic in Chars but size and returns."""
+    factors = TREE_SETUPS[tree_tag].get('factors')
+    if factors:
+        return list(factors)
+    c = Chars()
+    return [v for v in c.__dict__.values() if v not in (c.lme, c.returns)]
 
 
 def tree_variant(variant: str) -> str:

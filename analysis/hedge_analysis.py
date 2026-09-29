@@ -30,7 +30,7 @@ import pandas as pd
 import statsmodels.api as sm
 
 from analysis.backtest_report import REGION, UNIVERSE, VARIANT, LABEL, RET_NAME, make_periods, perf_stats
-from src.constants import Chars, DataPaths, parse_variant
+from src.constants import DataPaths, factor_chars, parse_variant
 from src.functions import _get_weights
 from src.preprocessing import read_backtest_data
 
@@ -98,7 +98,7 @@ def build_positions(region, universe, variant):
     refits = pd.read_csv(paths.result_file('node_betas', region, universe, variant))['refit_date'].unique()
     factors = pd.read_csv(out_dir / 'factor_returns.csv', index_col=0)
 
-    features = list(Chars().__dict__.values())[:-2]
+    features = factor_chars(parse_variant(variant)[1])
     data = read_backtest_data(features, RET_NAME, region=region, universe=universe).swaplevel(0, 1).sort_index()
     data = data[data.index.get_level_values('date') >= rets.index.min()]
     ret = data[RET_NAME]

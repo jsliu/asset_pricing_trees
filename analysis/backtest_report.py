@@ -32,7 +32,7 @@ import pandas as pd
 import statsmodels.api as sm
 import matplotlib.pyplot as plt
 
-from src.constants import Chars, DataPaths, parse_variant
+from src.constants import DataPaths, factor_chars, parse_variant
 from src.preprocessing import read_backtest_data
 from src.functions import calc_fac_ret, _get_weights
 
@@ -52,6 +52,7 @@ def _run_args():
 
 
 REGION, UNIVERSE, VARIANT = _run_args()            # VARIANT: file-name part of the run, e.g. None, 'vw', 'slow3_val'
+FEATURES = factor_chars(parse_variant(VARIANT)[1])   # characteristics of the run's factor portfolios
 EQUAL_WEIGHTED = parse_variant(VARIANT)[0]         # market adjustment of the run (backtest.py)
 LABEL = DataPaths().label(REGION, UNIVERSE, VARIANT)
 RET_NAME = 'gross_returns' if UNIVERSE is None else 'ret'
@@ -179,7 +180,7 @@ if __name__ == '__main__':
     scores = pd.read_csv(paths.result_file('score', REGION, UNIVERSE, VARIANT)).set_index(['date', 'permno'])
     start = rets.index.min()
 
-    features = list(Chars().__dict__.values())[:-2]
+    features = FEATURES
     data = read_backtest_data(features, RET_NAME, region=REGION, universe=UNIVERSE).swaplevel(0, 1).sort_index()
     print('Computing factor returns')
     factors = calc_fac_ret(data[features], data[RET_NAME], date_col='date', score_weighted=True)

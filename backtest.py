@@ -15,7 +15,7 @@ from plot_test_sr import calc_sharpe
 from prune_trees import prune, to_pandas, factor_betas, residualize_portfolios
 from build_trees import prepare_data
 from stock_portfolio_pl import get_stocks_in_node, compute_node_scores
-from src.constants import DataPaths, Parameters, Columns, Chars, Years, TREE_SETUPS, PRUNE_SETUPS, run_variant
+from src.constants import DataPaths, Parameters, Columns, Years, TREE_SETUPS, PRUNE_SETUPS, run_variant, factor_chars
 from src.functions import calc_fac_ret
 from src.preprocessing import read_backtest_data
 from src.utils import build_comb
@@ -190,7 +190,6 @@ def run_backtest(region=None, universe=None, ret_name='gross_returns', start_yea
     """
     if refit_freq not in ('Y', 'Q', 'M'):
         raise ValueError(f"refit_freq must be 'Y', 'Q' or 'M', got {refit_freq!r}")
-    chars = Chars()
     years = Years()
     paths = DataPaths()
     start_year = years.min_year if start_year is None else start_year
@@ -201,7 +200,7 @@ def run_backtest(region=None, universe=None, ret_name='gross_returns', start_yea
     prune_kwargs = PRUNE_SETUPS[prune_tag]
     print(f"Loading base characteristics in {label}")
 
-    features = list(chars.__dict__.values())[:-2]
+    features = factor_chars(tree_tag)                  # the factor portfolios' characteristics
     # the factor characteristics, and those of the trees when they are others
     data = read_backtest_data(list(dict.fromkeys(features + (tree_chars or []))), ret_name, region=region, universe=universe)
     # data = read_db_data(region_=reg, features=features, ret_name=Columns.returns_col, data_saved=data_saved)

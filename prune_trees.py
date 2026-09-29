@@ -10,7 +10,7 @@ from sklearn.model_selection import TimeSeriesSplit, GridSearchCV, train_test_sp
 from sklearn.exceptions import ConvergenceWarning
 from src.preprocessing import cap_weight, read_ei_data, read_db_data, read_big_universe, read_all_data
 from src.functions import calc_fac_ret
-from src.constants import Chars, DataPaths, Parameters, Columns
+from src.constants import Chars, DataPaths, Parameters, Columns, factor_chars
 from src.model import TreeElastic
 from tqdm import tqdm
 
@@ -218,7 +218,7 @@ if __name__ == '__main__':
     regions = ['US', ]
     for reg in regions:
         print(f"Read EI factors in {reg}")
-        features = list(chars.__dict__.values())[:-2]
+        features = factor_chars('EI')          # company data: the EI composite factors
         if reg == "ALL":
             data, CHARAS_LIST, _ = read_all_data(target=ret_name, ei_factors=features)
         else:

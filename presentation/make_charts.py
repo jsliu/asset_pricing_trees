@@ -16,8 +16,8 @@ REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
 OUT = Path(__file__).resolve().parent / "charts"
 
-from analysis.backtest_report import REGION, UNIVERSE, VARIANT, RET_NAME, long_short   # noqa: E402
-from src.constants import Chars, DataPaths, tree_variant        # noqa: E402
+from analysis.backtest_report import FEATURES, REGION, UNIVERSE, VARIANT, RET_NAME, long_short   # noqa: E402
+from src.constants import DataPaths, tree_variant        # noqa: E402
 from src.preprocessing import read_backtest_data                # noqa: E402
 
 SURFACE = "#f7f6f2"
@@ -48,7 +48,7 @@ def load_inputs():
     rets = pd.read_csv(paths.result_file("ret", REGION, UNIVERSE, VARIANT), index_col=0)
     scores = pd.read_csv(paths.result_file("score", REGION, UNIVERSE, VARIANT)).set_index(["date", "permno"])
 
-    features = list(Chars().__dict__.values())[:-2]
+    features = FEATURES
     data = read_backtest_data(features, RET_NAME, region=REGION, universe=UNIVERSE).swaplevel(0, 1).sort_index()
     ret = data[RET_NAME][data.index.get_level_values("date") >= rets.index.min()]
     ls = pd.DataFrame({c: long_short(scores[c], ret) for c in SCORES if c in scores})

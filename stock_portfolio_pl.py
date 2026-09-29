@@ -5,7 +5,7 @@ import polars as pl
 from tqdm import tqdm
 from build_trees import prepare_data
 from src.utils import tree_grows
-from src.constants import Columns, Chars
+from src.constants import Columns, Chars, factor_chars
 from src.preprocessing import read_ei_data, read_big_universe
 
 def run_pipeline(data: pl.DataFrame, merged_df: pl.DataFrame, best_combos: list):
@@ -242,7 +242,7 @@ if __name__ == "__main__":
     for reg in regions:
         print(f"Loading base characteristics in {reg}")
         ret_name = 'gross_returns'
-        features = list(chars.__dict__.values())[:-2]
+        features = factor_chars('EI')          # company data: the EI composite factors
         data, _, CHARAS_LIST, _, _ = read_ei_data(region_=reg, target=ret_name, ei_factors=features)
         # data = read_db_data(region_=reg, features=features, ret_name=Columns.returns_col, data_saved=data_saved)
         # data = read_big_universe(ret_name=ret_name, features=features)

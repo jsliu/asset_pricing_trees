@@ -27,7 +27,7 @@ import numpy as np
 import pandas as pd
 
 from analysis.backtest_report import make_periods
-from src.constants import Chars, DataPaths, run_variant
+from src.constants import DataPaths, factor_chars, run_variant
 from src.preprocessing import read_backtest_data
 
 TARGETS = (0.15, 0.30, 0.50)     # active share of the long-only portfolio
@@ -93,7 +93,7 @@ def main():
     pd.set_option('display.width', 250)
 
     paths = DataPaths()
-    features = list(Chars().__dict__.values())[:-2]
+    features = factor_chars()                    # the ew and vw runs use the default trees
     ret_name = 'gross_returns' if args.universe is None else 'ret'
     data = read_backtest_data(features, ret_name, region=args.region, universe=args.universe).swaplevel(0, 1).sort_index()
 

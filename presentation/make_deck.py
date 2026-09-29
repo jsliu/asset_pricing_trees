@@ -18,8 +18,8 @@ from matplotlib.patches import Rectangle
 
 import make_charts as mc
 from backtest import MIN_NODE_SIZE
-from analysis.backtest_report import EQUAL_WEIGHTED, N_SIZE_BUCKETS, REGION, UNIVERSE, LABEL, VARIANT
-from src.constants import Chars, DataPaths, Parameters
+from analysis.backtest_report import EQUAL_WEIGHTED, FEATURES, N_SIZE_BUCKETS, REGION, UNIVERSE, LABEL, VARIANT
+from src.constants import DataPaths, Parameters
 
 W, H, M = 16, 9, 0.9                     # page size and side margin, inches
 BG, BAND, CARD, LINE = "#f7f6f2", "#efece4", "#fdfcf9", "#d9d5ca"
@@ -166,7 +166,7 @@ def build(d, path, preview_dir=None):
     s50 = perf.loc[("size >= 50th pct", DEFAULT_SCORE, "Full"), "Sharpe"]
     s50_net = costs.loc[("size >= 50th pct", DEFAULT_SCORE), "Sharpe after 10bps"]
     refits = d["node_betas"]["refit_date"].unique()
-    features = list(Chars().__dict__.values())[:-2]
+    features = FEATURES
 
     # 1. cover
     fig = deck.slide(dark=True, footer=False)

@@ -29,7 +29,7 @@ from analysis.backtest_report import REGION, UNIVERSE, VARIANT, LABEL, RET_NAME,
 from analysis.hedge_analysis import SCORE, build_positions, score_weights, hedge_score, score_stats
 from backtest import score_stocks
 from build_trees import prepare_data
-from src.constants import Chars, Columns, DataPaths, TREE_SETUPS, parse_variant
+from src.constants import Columns, DataPaths, TREE_SETUPS, factor_chars, parse_variant
 from src.functions import _get_weights
 from src.preprocessing import read_backtest_data
 from src.utils import build_comb
@@ -72,7 +72,7 @@ if __name__ == '__main__':
     factors = pd.read_csv(out_dir / 'factor_returns.csv', index_col=0)
 
     # the stock data the backtest scores stocks on, from the first month
-    features = list(Chars().__dict__.values())[:-2]
+    features = factor_chars(tree_tag)
     data = read_backtest_data(list(dict.fromkeys(features + (tree_chars or []))), RET_NAME, region=REGION, universe=UNIVERSE)
     data_pl, ret_and_mcap = prepare_data(data, ret_name=RET_NAME, factors=None, equal_weighted=equal_weighted)
     comb_pl = build_comb(data=data_pl, merged_df=ret_and_mcap, features=(tree_chars or features) + ['lme'])

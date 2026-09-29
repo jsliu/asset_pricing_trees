@@ -9,7 +9,7 @@ from tqdm import tqdm
 # from itertools import combinations
 
 from src.utils import build_tree_portfolio, build_comb
-from src.constants import Columns, Chars, DataPaths, Parameters, TREE_SETUPS, run_variant
+from src.constants import Columns, Chars, DataPaths, Parameters, TREE_SETUPS, run_variant, factor_chars
 from src.functions import get_residuals
 from src.preprocessing import cap_weight, read_db_data, read_big_universe, read_backtest_data
 
@@ -140,7 +140,7 @@ if __name__ == '__main__':
         logging.info(f"Loading base characteristics")
         print(f"Loading base characteristics in {label}")
 
-        features = list(chars.__dict__.values())[:-2]
+        features = factor_chars(TREE_TAG)
         data = read_backtest_data(list(dict.fromkeys(features + (setup['chars'] or []))), ret_name, region=region, universe=universe)
         # data = read_db_data(region_=region, features=features, ret_name=ret_name, data_saved=data_saved)
         # data = read_big_universe(ret_name=ret_name, features=features, features_direction=[1, -1, -1, 1, 1, -1, -1, -1, 1, -1])

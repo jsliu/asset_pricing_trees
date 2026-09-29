@@ -42,8 +42,10 @@ def run_token(region, universe, variant):
     return (f"{region}@" if region else "") + (universe or "") + (f":{variant}" if variant else "")
 
 
-TAG_LABELS = {"vw": "VW", "slow3": "slow d3", "screen3": "screen d3", "val": "val"}
+TAG_LABELS = {"vw": "VW", "slow3": "slow d3", "screen3": "screen d3", "EI": "EI", "EI_sub": "EI sub", "daily": "daily",
+              "val": "val"}
 TAG_DESCRIPTIONS = {"slow3": "slow characteristics, depth 3", "screen3": "screened characteristics, depth 3",
+                    "EI": "composite factors", "EI_sub": "sub-factors", "daily": "daily-data characteristics",
                     "val": "validated pruning, 20y window"}
 
 
@@ -53,7 +55,7 @@ def describe(region, universe, variant):
     name = UNIVERSE_LABELS.get(universe, universe) if universe else ("All regions" if region == "ALL" else region)
     if region and universe:
         name = f"{region} {name}"
-    tags = variant.split("_") if variant else []
+    tags = [t for t in (None if equal_weighted else "vw", tree, prune) if t]
     label = " ".join([name] + [TAG_LABELS.get(t, t) for t in tags])
     rule = UNIVERSE_RULES.get(universe, f"Universe {universe}") if universe else f"Company data, region {region}"
     extras = [TAG_DESCRIPTIONS[t] for t in (tree, prune) if t in TAG_DESCRIPTIONS]

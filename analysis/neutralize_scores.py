@@ -22,10 +22,10 @@ import numpy as np
 import pandas as pd
 from AlphaWorkshop.src.main.python.alphaworkshop.functions import rank_normalise
 
-from analysis.backtest_report import (REGION, UNIVERSE, VARIANT, LABEL, RET_NAME, COSTS_BPS, make_periods, by_period,
+from analysis.backtest_report import (FEATURES, REGION, UNIVERSE, VARIANT, LABEL, RET_NAME, COSTS_BPS, make_periods, by_period,
                                       long_short, rank_ic, traded)
 from analysis.transfer_coefficient import grid, long_only
-from src.constants import Chars, DataPaths
+from src.constants import DataPaths
 from src.preprocessing import read_backtest_data
 
 SCORE = 'size_oriented_norm'
@@ -71,7 +71,7 @@ if __name__ == '__main__':
     pd.set_option('display.width', 250)
     paths = DataPaths()
     report_dir = paths.result_file('report', REGION, UNIVERSE, VARIANT, ext=None)
-    features = list(Chars().__dict__.values())[:-2]
+    features = FEATURES
 
     scores = pd.read_csv(paths.result_file('score', REGION, UNIVERSE, VARIANT), usecols=['date', 'permno', SCORE])
     scores = scores.set_index(['date', 'permno'])[SCORE]
