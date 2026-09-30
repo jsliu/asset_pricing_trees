@@ -402,10 +402,10 @@ def build(d, path, preview_dir=None):
              tw, size=13, color=MUTED)
         deck.save(fig)
 
-        # 9d. does the edge persist? horizon decay of the (unhedged) scores
+        # 9d. does the edge persist? horizon decay of the hedged scores
         with_decay = [h_ for h_ in ds if h_['decay'] is not None]
         if with_decay:
-            fig = deck.slide("Does the edge persist?", "How much of the score's return is left 3, 6 and 12 months later")
+            fig = deck.slide("Does the edge persist?", "How much of the hedged score's return is left months later")
             msc.plot_score_decay_multi(chart(fig, M + 0.2, 2.75, 6.4, 3.75), with_decay)
             horizons = [h for h in [1, 3, 6, 12] if h in with_decay[0]['decay'].index]
             dec0 = with_decay[0]['decay']                      # the score (blue), for the return column and the text
@@ -417,21 +417,65 @@ def build(d, path, preview_dir=None):
             fig.text((gx + 0.12) / W, 7.05 / H, "Rank IC with the month-k return", fontsize=13, weight="bold",
                      color=ACCENT, va="bottom")
             fig.add_artist(Line2D([(gx + 0.1) / W, (tx + tw - 0.1) / W], [7.0 / H, 7.0 / H], color=ACCENT, linewidth=1))
-            y = table(fig, tx, 6.9, tw, ["", f"{with_decay[0]['label']} return, %/yr (t)"] + [h_['label'] for h_ in with_decay],
+            y = table(fig, tx, 6.9, tw, ["", f"Hedged {with_decay[0]['label'].lower()} return, %/yr (t)"] + [h_['label'] for h_ in with_decay],
                       rows, widths, size=14, row_h=0.46)
-            text(fig, tx, y - 0.25, "How it is measured: the unhedged scores' long/shorts are formed as usual, then the "
-                 "same positions are held and the return earned in month k alone is compared with month 1 (left; 1.0 = "
-                 "as much as month 1, below 0 = the positions lose money). The rank IC correlates the score with each "
-                 "stock's return in month k.", tw, size=12, color=MUTED)
+            text(fig, tx, y - 0.25, "How it is measured: each score's hedged long/short (its positions minus the factor "
+                 "hedge) is formed as usual, then the same positions are held and the return earned in month k alone is "
+                 "compared with month 1 (left; 1.0 = as much as month 1, below 0 = the positions lose money). The rank IC "
+                 "correlates the hedged position weights with each stock's return in month k.", tw, size=12, color=MUTED)
             r = {h: dec0.loc[h] for h in horizons}
-            text(fig, M, 1.95, f"What it shows: the {with_decay[0]['label'].lower()} earns "
-                 f"{num(r[1]['ann. return %'], '{:.1f}')}% a year in the month after it is formed (t {r[1]['t-stat']:.1f}), "
-                 f"then gives much of it back: {num(r[3]['ann. return %'], '{:+.1f}')}% a year in month 3 "
-                 f"(t {r[3]['t-stat']:.1f}) and {num(r[6]['ann. return %'], '{:+.1f}')}% in month 6. The information lasts "
-                 f"about a month, so the score must be rebalanced monthly, which is why its turnover is "
-                 f"{cost_all['one-way turnover %/mo']:.0f}% a month. The later losses are likely the SDF's short-momentum "
-                 "loading (Factor exposure): stocks the score favours tend to keep underperforming for some months.",
+            later = [h for h in horizons if h > 1]
+            parts = [f"{num(r[h]['ann. return %'], '{:+.1f}')}% a year in month {h} (t {r[h]['t-stat']:.1f})" for h in later]
+            held = ", ".join(parts[:-1]) + (" and " if len(parts) > 1 else "") + parts[-1]
+            t_later = [r[h]['t-stat'] for h in later]
+            turnover = with_decay[0]['table'].loc['Full', 'one-way turnover %/mo']
+            if all(abs(t_) < 2 for t_ in t_later):
+                verdict = ("None of the later months is significant: the information is used up within about a month, "
+                           f"so the hedged score is rebalanced monthly (turnover {turnover:.0f}% a month, hedge included).")
+            elif min(t_later) <= -2:
+                verdict = ("The positions then lose money, so the hedged score has to be rebalanced monthly "
+                           f"(turnover {turnover:.0f}% a month, hedge included).")
+            else:
+                verdict = ("The positions keep earning after the first month, so slower rebalancing could keep much of "
+                           f"the return at a fraction of the {turnover:.0f}% monthly turnover.")
+            raw = with_decay[0].get('decay_raw')
+            compare = (f" Unhedged, month 3 is {num(raw.loc[3, 'ann. return %'], '{:+.1f}')}% a year "
+                       f"(t {raw.loc[3, 't-stat']:.1f})." if raw is not None and 3 in raw.index else "")
+            text(fig, M, 1.95, f"What it shows: the hedged {with_decay[0]['label'].lower()} earns "
+                 f"{num(r[1]['ann. return %'], '{:.1f}')}% a year in the month after it is formed (t {r[1]['t-stat']:.1f}); "
+                 f"held on, the same positions earn {held}. " + verdict + compare,
                  W - 2 * M, size=14, color=TEXT)
+            deck.save(fig)
+
+        # 9d2. trading the hedged score more slowly (turnover_controls.py)
+        rep_dir = DataPaths().result_file("report", REGION, UNIVERSE, VARIANT, ext=None)
+        if (rep_dir / "turnover_controls_score_by_period.csv").exists():
+            tc = pd.read_csv(rep_dir / "turnover_controls_score_by_period.csv").set_index(["control", "period"])
+            full_tc, last_p = tc.xs("Full", level="period"), [p_ for p_ in periods if p_ in tc.index.get_level_values("period")][-1]
+            last_tc = tc.xs(last_p, level="period")
+            fig = deck.slide("Trading the hedged score", "Slower trading keeps most of the hedged score at far lower cost")
+            rows = [[c, f"{full_tc.loc[c, 'one-way turnover %/mo']:.0f}%", num(full_tc.loc[c, "Sharpe"]),
+                     f"{num(full_tc.loc[c, 'break-even cost bps'], '{:.0f}')} bps", num(full_tc.loc[c, "Sharpe after 10bps"]),
+                     num(full_tc.loc[c, "Sharpe after 25bps"]), num(last_tc.loc[c, "Sharpe"]),
+                     num(last_tc.loc[c, "Sharpe after 10bps"])] for c in full_tc.index]
+            widths_tc = [0.24, 0.1, 0.09, 0.11, 0.1, 0.1, 0.12, 0.14]
+            gx = M + (W - 2 * M) * sum(widths_tc[:6])          # label over the latest period's columns
+            fig.text((gx + 0.12) / W, 7.05 / H, f"The {last_p}", fontsize=14, weight="bold", color=ACCENT, va="bottom")
+            fig.add_artist(Line2D([(gx + 0.1) / W, (W - M - 0.1) / W], [7.0 / H, 7.0 / H], color=ACCENT, linewidth=1))
+            y = table(fig, M, 6.9, W - 2 * M, ["Trading rule, whole book", "Turnover", "Sharpe", "Break-even", "@ 10 bps",
+                                               "@ 25 bps", "Sharpe", "@ 10 bps"],
+                      rows, widths_tc, size=15, row_h=0.48, bold=(1,))
+            base, best10 = full_tc.iloc[0], full_tc["Sharpe after 10bps"].idxmax()
+            best25 = full_tc["Sharpe after 25bps"].idxmax()
+            text(fig, M, y - 0.3, "Each month the book (score positions and hedge) moves only part of the way to its new "
+                 "target, or holds the average of recent targets; turnover is one-way per unit long and unit short. "
+                 f"{best10.capitalize()} cuts turnover from {base['one-way turnover %/mo']:.0f}% to "
+                 f"{full_tc.loc[best10, 'one-way turnover %/mo']:.0f}% a month and lifts the Sharpe ratio after 10 bps from "
+                 f"{num(base['Sharpe after 10bps'])} to {num(full_tc.loc[best10, 'Sharpe after 10bps'])}; after 25 bps, "
+                 f"{best25} gives {num(full_tc.loc[best25, 'Sharpe after 25bps'])} against {num(base['Sharpe after 25bps'])}. "
+                 f"In the {last_p}, though, no rule gets above {num(last_tc['Sharpe after 10bps'].max())} after 10 bps: "
+                 "slower trading cuts the cost, but the recent gross return is too small to leave much.",
+                 W - 2 * M - 1.0, size=14, color=TEXT)
             deck.save(fig)
 
         # 9e. is the alpha a size or market-beta bet?

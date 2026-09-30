@@ -222,13 +222,18 @@ if __name__ == '__main__':
         # ---------------- 3. the monthly series, for the deck's chart ----------------
         hedged.rename('hedged').to_csv(out_dir / output_name('signal_hedged_monthly', score))
 
-        # ---------------- 4. horizon retention of the score: does the information persist? ----------------
+        # ---------------- 4. horizon retention: does the information persist? ----------------
+        # the hedged positions (score weights minus the hedge) held for k months, their rank IC with the month-k
+        # return; the unhedged score's for comparison
         score_series = pd.read_csv(paths.result_file('score', None, UNIVERSE, VARIANT),
                                    usecols=['date', 'permno', score]).set_index(['date', 'permno'])[score].dropna()
-        decay = score_decay_table(score_series, w, p['ret'], horizons=(1, 3, 6, 12))
+        decay = score_decay_table(w_hedged, w_hedged, p['ret'], horizons=(1, 3, 6, 12))
         decay.to_csv(out_dir / output_name('signal_score_decay', score))
-        print('\n==== 4. Horizon retention of the score ====')
+        decay_raw = score_decay_table(score_series, w, p['ret'], horizons=(1, 3, 6, 12))
+        decay_raw.to_csv(out_dir / output_name('signal_score_decay_unhedged', score))
+        print('\n==== 4. Horizon retention of the hedged score (unhedged below) ====')
         print(decay.round(3).to_string())
+        print(decay_raw.round(3).to_string())
 
         # ---------------- 5. does the alpha survive size and beta hedging? ----------------
         decomp = {}

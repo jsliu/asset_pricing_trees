@@ -54,6 +54,8 @@ def load_hedged_inputs(region=None, universe=None, variant=None, report_dir=None
         'table': pd.read_csv(rep / name('signal_hedged_by_period'), index_col=0),
         'spanning': pd.read_csv(rep / name('signal_spanning_sharpe'), index_col=0),
         'decay': pd.read_csv(decay_file, index_col=0) if decay_file.exists() else None,
+        'decay_raw': (pd.read_csv(rep / name('signal_score_decay_unhedged'), index_col=0)
+                      if (rep / name('signal_score_decay_unhedged')).exists() else None),
         'decomp': pd.read_csv(decomp_file, index_col=0) if decomp_file.exists() else None,
         'dir': rep,
         'label': label,

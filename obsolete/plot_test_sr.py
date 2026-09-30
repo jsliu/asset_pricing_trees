@@ -11,7 +11,7 @@ from sklearn.model_selection import train_test_split
 from src.constants import DataPaths, Parameters
 from src.functions import scale
 from prune_trees import prune, to_pandas
-from stock_portfolio_pl import get_stocks_in_node
+from obsolete.stock_portfolio import get_stocks_in_node
 
 
 def plot_sharpe(data):

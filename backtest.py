@@ -10,10 +10,9 @@ from tqdm import tqdm
 from joblib import Parallel, delayed
 from scipy.stats import norm
 
-from plot_test_sr import calc_sharpe
 from prune_trees import prune, to_pandas, factor_betas, residualize_portfolios
 from build_trees import prepare_data
-from stock_portfolio_pl import get_stocks_in_node, compute_node_scores
+from src.tree_scores import calc_sharpe, get_stocks_in_node, compute_node_scores
 from src.constants import DataPaths, Parameters, Columns, Years, TREE_SETUPS, PRUNE_SETUPS, run_variant, factor_chars
 from src.functions import calc_fac_ret, rank_normalise
 from src.preprocessing import read_backtest_data
