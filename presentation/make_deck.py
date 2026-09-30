@@ -1,10 +1,9 @@
 """
 Builds the backtest presentation as a PDF (16:9 pages) from the backtest outputs and the report tables.
 Run analysis/backtest_report.py first, then from the project root:
-    python presentation/make_deck.py [<universe>] [--region GL] [--vw | --variant TAGS] [--png] [--section]
+    python presentation/make_deck.py [<universe>] [--region GL] [--vw | --variant TAGS] [--png]
         -> presentation/[<region>_]backtest[_<universe>][_vw].pdf (universe defaults to 'full');
            --png also writes one PNG per page to presentation/deck_preview/
-           --section titles the cover as a part of a longer deck ("Large cap in detail"), for make_presentation.py
 Numbers, tables and the descriptive sentences are all computed from the current results.
 """
 import sys
@@ -170,10 +169,10 @@ def build(d, path, preview_dir=None):
     # 1. cover
     fig = deck.slide(dark=True, footer=False)
     fig.text(M / W, 8.1 / H, f"BACKTEST REVIEW · {date.today():%B %Y}".upper(), fontsize=13, weight="bold", color=ACCENT_LIGHT, va="top")
-    title = f"{mc.describe(REGION, UNIVERSE, VARIANT)[0]} in detail" if "--section" in sys.argv else "Asset Pricing Trees"
-    fig.text(M / W, 5.6 / H, title, fontsize=64, family=SERIF, weight="bold", color=BG, va="top")
-    fig.text(M / W, 4.2 / H, f"Out-of-sample SDF and stock scores, {y0}–{y1}", fontsize=26, color=ON_DARK, va="top")
-    fig.text(M / W, 1.0 / H, f"{LABEL} · {weighting}-weighted trees · {len(refits)} refits · {len(rets)} months out of sample",
+    model, model_desc = mc.describe(REGION, UNIVERSE, VARIANT)
+    fig.text(M / W, 5.6 / H, "Asset Pricing Trees", fontsize=64, family=SERIF, weight="bold", color=BG, va="top")
+    fig.text(M / W, 4.2 / H, f"{model}: out-of-sample SDF and stock scores, {y0}–{y1}", fontsize=26, color=ON_DARK, va="top")
+    fig.text(M / W, 1.0 / H, f"{model_desc} · {len(refits)} refits · {len(rets)} months out of sample",
              fontsize=15, color="#9fb0c6")
     deck.save(fig)
 
@@ -467,15 +466,24 @@ def build(d, path, preview_dir=None):
                       rows, widths_tc, size=15, row_h=0.48, bold=(1,))
             base, best10 = full_tc.iloc[0], full_tc["Sharpe after 10bps"].idxmax()
             best25 = full_tc["Sharpe after 25bps"].idxmax()
+            monthly = full_tc.index[0]
+            if best10 == monthly:
+                at10 = (f"Monthly rebalancing already gives the best Sharpe ratio after 10 bps "
+                        f"({num(base['Sharpe after 10bps'])})")
+            else:
+                at10 = (f"{best10.capitalize()} cuts turnover from {base['one-way turnover %/mo']:.0f}% to "
+                        f"{full_tc.loc[best10, 'one-way turnover %/mo']:.0f}% a month and lifts the Sharpe ratio after "
+                        f"10 bps from {num(base['Sharpe after 10bps'])} to {num(full_tc.loc[best10, 'Sharpe after 10bps'])}")
+            at25 = ("; it is also best after 25 bps." if best25 == best10 else
+                    f"; after 25 bps, {best25} gives {num(full_tc.loc[best25, 'Sharpe after 25bps'])} against "
+                    f"{num(base['Sharpe after 25bps'])}.")
+            recent = last_tc['Sharpe after 10bps'].max()
+            recent_txt = (f" In the {last_p}, though, no rule gets above {num(recent)} after 10 bps: slower trading cuts "
+                          "the cost, but the recent gross return is too small to leave much." if recent < 0.5 else
+                          f" In the {last_p} the best rule still gives {num(recent)} after 10 bps.")
             text(fig, M, y - 0.3, "Each month the book (score positions and hedge) moves only part of the way to its new "
                  "target, or holds the average of recent targets; turnover is one-way per unit long and unit short. "
-                 f"{best10.capitalize()} cuts turnover from {base['one-way turnover %/mo']:.0f}% to "
-                 f"{full_tc.loc[best10, 'one-way turnover %/mo']:.0f}% a month and lifts the Sharpe ratio after 10 bps from "
-                 f"{num(base['Sharpe after 10bps'])} to {num(full_tc.loc[best10, 'Sharpe after 10bps'])}; after 25 bps, "
-                 f"{best25} gives {num(full_tc.loc[best25, 'Sharpe after 25bps'])} against {num(base['Sharpe after 25bps'])}. "
-                 f"In the {last_p}, though, no rule gets above {num(last_tc['Sharpe after 10bps'].max())} after 10 bps: "
-                 "slower trading cuts the cost, but the recent gross return is too small to leave much.",
-                 W - 2 * M - 1.0, size=14, color=TEXT)
+                 + at10 + at25 + recent_txt, W - 2 * M - 1.0, size=14, color=TEXT)
             deck.save(fig)
 
         # 9e. is the alpha a size or market-beta bet?
@@ -509,8 +517,9 @@ def build(d, path, preview_dir=None):
                     f"({c['size beta']:+.2f}, t {c['size beta t']:.1f}), leaning if anything to "
                     f"{'large' if c['size beta'] < 0 else 'small'} stocks: ")
                  + "most of the SDF's gross return comes from smaller "
-                 "stocks, but the alpha left after hedging is not a small-stock bet. Beta takes a little more, so part of the "
-                 "return came with market-beta exposure, but most of it survives"
+                 "stocks, but the alpha left after hedging is not a small-stock bet. "
+                 + ("Beta takes a little more, so part of the return came with market-beta exposure, but most of it survives"
+                    if b['Sharpe'] - c['Sharpe'] > 0.02 else "Adding beta to the hedge changes little")
                  + (f" ({other_txt})." if others else "."), W - 2 * M, size=14, color=TEXT)
             deck.save(fig)
 
@@ -577,8 +586,10 @@ def build(d, path, preview_dir=None):
                             by_size['share of return %'].to_numpy(dtype=float))
         msc.plot_size_sharpe_within(chart(fig, M + 8.0, 2.65, 6.6, 3.85), labels, raw_within,
                                     by_size['Sharpe within'].to_numpy(dtype=float))
-        text(fig, M, 1.85, f"Right: the score's long/short built only from each quintile's stocks. Unhedged it barely earns "
-             f"outside the smallest stocks; hedged on the nine factors it earns in all five (Sharpe "
+        n_earn = int((by_size['Sharpe within'] > 0).sum())
+        text(fig, M, 1.85, f"Right: the score's long/short built only from each quintile's stocks. Unhedged its Sharpe ratio "
+             f"goes from {num(raw_within[0])} in the smallest to {num(raw_within[-1])} in the largest; hedged on the nine "
+             f"factors it earns in {'all five' if n_earn == len(labels) else f'{n_earn} of {len(labels)}'} (Sharpe "
              f"{num(by_size['Sharpe within'].iloc[0])} to {num(by_size['Sharpe within'].iloc[-1])}, alpha t "
              f"{by_size['alpha t within'].min():.1f} to {by_size['alpha t within'].max():.1f}), so the alpha is not a "
              f"size bet. Left: its return still leans to smaller stocks, {hedged_small:.0f}% from the {small_label} "
@@ -649,8 +660,9 @@ def build(d, path, preview_dir=None):
         if ct is not None:
             y = table(fig, M, y - 0.45, W - 2 * M, head2, rows2, w2, size=size_, row_h=rh)
             best10 = ct["Sharpe after 10bps"].idxmax()
-            note = (f" Slower trading: {best10} gives the best Sharpe after 10 bps "
-                    f"({num(ct.loc[best10, 'Sharpe after 10bps'])}); partial rebalancing moves part of the way to the new "
+            note = ((" Slower trading: monthly rebalancing already gives the best Sharpe after 10 bps "
+                     if best10 == ct.index[0] else f" Slower trading: {best10} gives the best Sharpe after 10 bps ")
+                    + f"({num(ct.loc[best10, 'Sharpe after 10bps'])}); partial rebalancing moves part of the way to the new "
                     "target each month, averaging holds the mean of recent targets.")
         else:
             note = ""
@@ -666,7 +678,8 @@ def build(d, path, preview_dir=None):
         ("Size concentration", f"{small_share:.0f}% of the market-adjusted SDF return comes from the {small_label} of "
                                "stocks; the hedged score earns in every size quintile, but more in smaller stocks."),
         ("Gross of costs", f"Headline numbers ignore about {cost_all['one-way turnover %/mo']:.0f}% one-way turnover a month."),
-        ("Alpha benchmark", "The characteristic factors weight all stocks, so alphas of large-cap portfolios against them can overstate."),
+        ("Alpha benchmark", "The characteristic factors weight the model's stocks by score, not by market cap, so alphas "
+                            "against them can differ from alphas against cap-weighted or standard factors."),
         ("Factor normaliser", "Factor returns, score weights and hedges depend on rank_normalise, and its tie rule matters: "
                               "stocks in no held node all score 0. Another normaliser moves the hedged score's Sharpe by ~0.1."),
         ("Selection effect", "Tree portfolios are filtered by their missing-data rate over the full sample."),
