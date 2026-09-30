@@ -458,9 +458,14 @@ def build(d, path, preview_dir=None):
                                   f"{num(h_['decomp'].loc['9 + size + beta', 'Sharpe'])}" for h_ in others)
             text(fig, M, 1.95, f"What it shows: hedging size as well moves the {d0['label'].lower()}'s Sharpe ratio from "
                  f"{num(a['Sharpe'])} to {num(b['Sharpe'])}, and adding beta to {num(c['Sharpe'])} (alpha t "
-                 f"{a['alpha t (NW)']:.1f} → {c['alpha t (NW)']:.1f}). Its size loading stays near zero "
-                 f"({c['size beta']:+.2f}, t {c['size beta t']:.1f}): most of the SDF's gross return comes from smaller "
-                 "stocks, but the alpha left after hedging is not a size bet. Beta takes a little more, so part of the "
+                 f"{a['alpha t (NW)']:.1f} → {c['alpha t (NW)']:.1f}). "
+                 + (f"Its size loading stays near zero ({c['size beta']:+.2f}, t {c['size beta t']:.1f}): "
+                    if abs(c['size beta t']) < 2 else
+                    f"Its size loading is small but {'negative' if c['size beta'] < 0 else 'positive'} "
+                    f"({c['size beta']:+.2f}, t {c['size beta t']:.1f}), leaning if anything to "
+                    f"{'large' if c['size beta'] < 0 else 'small'} stocks: ")
+                 + "most of the SDF's gross return comes from smaller "
+                 "stocks, but the alpha left after hedging is not a small-stock bet. Beta takes a little more, so part of the "
                  "return came with market-beta exposure, but most of it survives"
                  + (f" ({other_txt})." if others else "."), W - 2 * M, size=14, color=TEXT)
             deck.save(fig)
@@ -533,7 +538,11 @@ def build(d, path, preview_dir=None):
              f"{num(by_size['Sharpe within'].iloc[0])} to {num(by_size['Sharpe within'].iloc[-1])}, alpha t "
              f"{by_size['alpha t within'].min():.1f} to {by_size['alpha t within'].max():.1f}), so the alpha is not a "
              f"size bet. Left: its return still leans to smaller stocks, {hedged_small:.0f}% from the {small_label} "
-             f"(the SDF: {small_share:.0f}%), because the alpha is larger there, not because it is long small stocks.",
+             f"(the SDF: {small_share:.0f}%), "
+             + ("though it earns about the same per unit of risk at every size: the same weight simply earns more in "
+                "the more volatile small stocks."
+                if by_size['Sharpe within'].max() <= 1.3 * by_size['Sharpe within'].min() else
+                "because it earns more per unit of risk there, not because it is long small stocks."),
              W - 2 * M, size=14, color=TEXT)
         deck.save(fig)
 
