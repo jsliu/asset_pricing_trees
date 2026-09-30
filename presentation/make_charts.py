@@ -17,7 +17,7 @@ sys.path.insert(0, str(REPO))
 OUT = Path(__file__).resolve().parent / "charts"
 
 from analysis.backtest_report import FEATURES, REGION, UNIVERSE, VARIANT, RET_NAME, long_short   # noqa: E402
-from src.constants import DataPaths, tree_variant        # noqa: E402
+from src.constants import DataPaths, parse_variant, tree_variant        # noqa: E402
 from src.preprocessing import read_backtest_data                # noqa: E402
 
 SURFACE = "#f7f6f2"
@@ -27,6 +27,29 @@ ORD = ["#86b6ef", "#5598e7", "#2a78d6", "#1c5cab", "#104281"]  # ordinal blue ra
 SCORES = ["size_oriented_score", "sdf_weight", "norm_score"]
 SCORE_NAMES = {"size_oriented_score": "score", "sdf_weight": "sdf_weight", "norm_score": "norm_score (original)"}
 SDF_NAMES = {"Return": "Factor-hedged (Return)", "Return_mkt_adj": "Market-adjusted (Return_mkt_adj)"}
+# run names on the slides
+UNIVERSE_LABELS = {"full": "Full", "largecap": "Large cap", "largecap001": "Large cap 0.01%"}
+UNIVERSE_RULES = {"full": "All stocks", "largecap": "Market cap ≥ 0.001% of the total",
+                  "largecap001": "Market cap ≥ 0.01% of the total"}
+TAG_LABELS = {"vw": "VW", "slow3": "slow d3", "screen3": "screen d3", "EI": "EI", "EI_sub": "EI sub", "daily": "daily",
+              "val": "val"}
+TAG_DESCRIPTIONS = {"slow3": "slow characteristics, depth 3", "screen3": "screened characteristics, depth 3",
+                    "EI": "composite factors", "EI_sub": "sub-factors", "daily": "daily-data characteristics",
+                    "val": "validated pruning, 20y window"}
+
+
+def describe(region, universe, variant):
+    """Column label and description of a run."""
+    equal_weighted, tree, prune = parse_variant(variant)
+    name = UNIVERSE_LABELS.get(universe, universe) if universe else ("All regions" if region == "ALL" else region)
+    if region and universe:
+        name = f"{region} {name}"
+    tags = [t for t in (None if equal_weighted else "vw", tree, prune) if t]
+    label = " ".join([name] + [TAG_LABELS.get(t, t) for t in tags])
+    rule = UNIVERSE_RULES.get(universe, f"Universe {universe}") if universe else f"Company data, region {region}"
+    extras = [TAG_DESCRIPTIONS[t] for t in (tree, prune) if t in TAG_DESCRIPTIONS]
+    return label, ", ".join([rule, "equal-weighted" if equal_weighted else "value-weighted"] + extras)
+
 
 plt.rcParams.update({
     "font.family": ["Helvetica Neue", "Arial", "DejaVu Sans"], "font.size": 20, "text.color": INK,

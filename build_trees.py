@@ -131,7 +131,7 @@ if __name__ == '__main__':
     regions = [None]
     universes = ['largecap', ]
     EQUAL_WEIGHTED = True      # False: value-weighted trees, saved as <comb>_<universe>_vw.parquet
-    TREE_TAG = None            # a tree set-up in TREE_SETUPS (src/constants.py), e.g. 'slow3': slow characteristics,
+    TREE_TAG = 'slow4'         # a tree set-up in TREE_SETUPS (src/constants.py), e.g. 'slow3': slow characteristics,
                                # depth 3, saved as <comb>_<universe>_slow3.parquet
     setup = TREE_SETUPS[TREE_TAG]
     for region, universe in product(regions, universes):

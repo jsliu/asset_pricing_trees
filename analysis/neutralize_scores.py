@@ -10,7 +10,8 @@ information ratio in a long-only portfolio against the cap-weighted benchmark (3
 
 Run backtest_report.py for the run first (it saves the factor returns), then from the project root:
     python analysis/neutralize_scores.py [<universe>] [--region GL] [--vw | --variant TAGS]      e.g. python analysis/neutralize_scores.py largecap
-Saves the neutral score to result/score_neutral[_<universe>][_vw].csv (date, permno, size_oriented_neutral) and the
+Saves the neutral score to result/[<region>_]score_neutral[_<universe>][_<variant>].csv (date, permno,
+size_oriented_neutral), e.g. result/score_neutral_largecap_slow3_val.csv, and the
 comparison to the run's report folder (neutral_score_by_period.csv, neutral_score_summary.csv).
 """
 import sys
@@ -20,7 +21,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))   # project root, f
 
 import numpy as np
 import pandas as pd
-from AlphaWorkshop.src.main.python.alphaworkshop.functions import rank_normalise
+
+from src.functions import rank_normalise
 
 from analysis.backtest_report import (FEATURES, REGION, UNIVERSE, VARIANT, LABEL, RET_NAME, COSTS_BPS, make_periods, by_period,
                                       long_short, rank_ic, traded)

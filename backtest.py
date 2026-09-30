@@ -9,14 +9,13 @@ from itertools import product
 from tqdm import tqdm
 from joblib import Parallel, delayed
 from scipy.stats import norm
-from AlphaWorkshop.src.main.python.alphaworkshop.functions import rank_normalise
 
 from plot_test_sr import calc_sharpe
 from prune_trees import prune, to_pandas, factor_betas, residualize_portfolios
 from build_trees import prepare_data
 from stock_portfolio_pl import get_stocks_in_node, compute_node_scores
 from src.constants import DataPaths, Parameters, Columns, Years, TREE_SETUPS, PRUNE_SETUPS, run_variant, factor_chars
-from src.functions import calc_fac_ret
+from src.functions import calc_fac_ret, rank_normalise
 from src.preprocessing import read_backtest_data
 from src.utils import build_comb
 
@@ -175,7 +174,9 @@ def run_backtest(region=None, universe=None, ret_name='gross_returns', start_yea
     firmly inside each node) and 'size_oriented_norm' (size_oriented_score rank-normalised to combine
     with factor scores).
 
-    The SDF node weights (beta) of every refit are saved as the 'node_betas' result file (DataPaths.result_file).
+    The SDF node weights (beta) of every refit are saved as the 'node_betas' result file (DataPaths.result_file), and
+    the node weights the original score uses (from calc_sharpe) as the 'combo_weights' result file, so that the scores
+    can be recomputed for any month with a refit's model (analysis/score_hedge.py).
 
     equal_weighted: equal- or value-weighted market adjustment and node weights. Like the tree files, the outputs of
     a value-weighted run end in '_vw' (e.g. result/ret_largecap_vw.csv) and it reads the '_vw' trees
@@ -252,7 +253,7 @@ def run_backtest(region=None, universe=None, ret_name='gross_returns', start_yea
     # -----------------------------
     rets = pd.DataFrame(index=dates, columns=['Return', 'Return_mkt_adj'], dtype=float)
     stock_scores = []
-    refit_betas = []
+    refit_betas, refit_combo = [], []
 
     # stock-level data split by date once, so node lookups only touch one cross-section
     comb_by_date = {
@@ -315,6 +316,7 @@ def run_backtest(region=None, universe=None, ret_name='gross_returns', start_yea
                 pd.Series(final_model.betas[final_best_model], index=final_model.feature_weights.index, name='beta')
                 .loc[lambda x: x != 0].reset_index().assign(refit_date=d)
             )
+            refit_combo.append(final_combo_wei.rename('weight').loc[lambda x: x != 0].reset_index().assign(refit_date=d))
         else:
             # reuse the last fit: take this date's returns of the portfolios the final model was fitted on
             test_portfolios = pd.concat(
@@ -344,6 +346,7 @@ def run_backtest(region=None, universe=None, ret_name='gross_returns', start_yea
     stk_score = pl.concat(stock_scores)
     stk_score.write_csv(paths.result_file('score', region, universe, variant))
     pd.concat(refit_betas).to_csv(paths.result_file('node_betas', region, universe, variant), index=False)
+    pd.concat(refit_combo).to_csv(paths.result_file('combo_weights', region, universe, variant), index=False)
 
     rets = rets.dropna()
     rets.cumsum().plot()
@@ -365,8 +368,8 @@ if __name__ == '__main__':
     regions = [None]
     universes = ['largecap', ]
     EQUAL_WEIGHTED = True      # False: reads the '_vw' trees and names its outputs with '_vw', e.g. ret_largecap_vw.csv
-    TREE_TAG = None            # tree set-up in TREE_SETUPS, e.g. 'slow3' (trees built with the same TREE_TAG)
-    PRUNE_TAG = None           # pruning set-up in PRUNE_SETUPS, e.g. 'val' (validated pruning on a rolling window)
+    TREE_TAG = 'slow4'         # tree set-up in TREE_SETUPS, e.g. 'slow3' (trees built with the same TREE_TAG)
+    PRUNE_TAG = 'val'          # pruning set-up in PRUNE_SETUPS, e.g. 'val' (validated pruning on a rolling window)
     for region, universe in product(regions, universes):
         ret_name = 'gross_returns' if universe is None else 'ret'
         run_backtest(region, universe, ret_name=ret_name, start_year=1980, refit_freq='Y',

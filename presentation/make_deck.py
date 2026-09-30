@@ -1,9 +1,10 @@
 """
 Builds the backtest presentation as a PDF (16:9 pages) from the backtest outputs and the report tables.
 Run analysis/backtest_report.py first, then from the project root:
-    python presentation/make_deck.py [<universe>] [--region GL] [--vw | --variant TAGS] [--png]
+    python presentation/make_deck.py [<universe>] [--region GL] [--vw | --variant TAGS] [--png] [--section]
         -> presentation/[<region>_]backtest[_<universe>][_vw].pdf (universe defaults to 'full');
            --png also writes one PNG per page to presentation/deck_preview/
+           --section titles the cover as a part of a longer deck ("Large cap in detail"), for make_presentation.py
 Numbers, tables and the descriptive sentences are all computed from the current results.
 """
 import sys
@@ -99,7 +100,7 @@ CELL_LINE = 1.25         # line spacing of wrapped table cells
 def wrap_cell(s, col_width, size, bold=False):
     """Lines of a cell's text wrapped to its column width (a word longer than the column stays whole)."""
     chars = max(4, int((col_width - 2 * CELL_PAD) * 72 / (size * (0.53 if bold else 0.48))))
-    return textwrap.wrap(str(s), chars) or [""]
+    return textwrap.wrap(str(s), chars, break_long_words=False) or [""]
 
 
 def table_height(width, header, rows, widths, size=15, row_h=0.46, bold=()):
@@ -160,8 +161,6 @@ def build(d, path, preview_dir=None):
     small_label = f"smallest {n_small * 100 // N_SIZE_BUCKETS}%"
     contrib_full = d["contrib"].xs("Full", level="period")["ann. return %"]
     small_share = contrib_full[buckets[:n_small]].sum() / contrib_full.sum() * 100
-    large_weight = d["exposure"].loc[buckets[-n_small:], "share of gross weight %"].sum()
-    large_contrib = contrib_full[buckets[-n_small:]].sum()
     cost_all = costs.loc[("all stocks", DEFAULT_SCORE)]
     s50 = perf.loc[("size >= 50th pct", DEFAULT_SCORE, "Full"), "Sharpe"]
     s50_net = costs.loc[("size >= 50th pct", DEFAULT_SCORE), "Sharpe after 10bps"]
@@ -171,7 +170,8 @@ def build(d, path, preview_dir=None):
     # 1. cover
     fig = deck.slide(dark=True, footer=False)
     fig.text(M / W, 8.1 / H, f"BACKTEST REVIEW · {date.today():%B %Y}".upper(), fontsize=13, weight="bold", color=ACCENT_LIGHT, va="top")
-    fig.text(M / W, 5.6 / H, "Asset Pricing Trees", fontsize=64, family=SERIF, weight="bold", color=BG, va="top")
+    title = f"{mc.describe(REGION, UNIVERSE, VARIANT)[0]} in detail" if "--section" in sys.argv else "Asset Pricing Trees"
+    fig.text(M / W, 5.6 / H, title, fontsize=64, family=SERIF, weight="bold", color=BG, va="top")
     fig.text(M / W, 4.2 / H, f"Out-of-sample SDF and stock scores, {y0}–{y1}", fontsize=26, color=ON_DARK, va="top")
     fig.text(M / W, 1.0 / H, f"{LABEL} · {weighting}-weighted trees · {len(refits)} refits · {len(rets)} months out of sample",
              fontsize=15, color="#9fb0c6")
@@ -349,6 +349,122 @@ def build(d, path, preview_dir=None):
          W - M - 9.9, size=12, color=MUTED)
     deck.save(fig)
 
+    # 9b. the three scores with their factor exposure removed (analysis/factor_spanning.py), side by side
+    import make_spanning_charts as msc
+    hedged = {}                                      # score -> its hedged-score tables, in the order of `scores`
+    for s_ in scores:
+        h_ = msc.load_hedged_inputs(REGION, UNIVERSE, VARIANT, score=s_, label=short[s_])
+        if h_ is not None:
+            h_['color'] = mc.CAT[mc.SCORES.index(s_) % len(mc.CAT)]      # the colours of the unhedged chart
+            hedged[s_] = h_
+    ds = list(hedged.values())
+    if ds:
+        fig = deck.slide("The hedged scores", "The scores with their factor exposure removed")
+        msc.plot_hedged_cumulative_multi(chart(fig, M + 0.2, 3.7, 7.4, 3.5), ds)
+        msc.plot_spanning_multi(chart(fig, M + 7.9, 3.7, 7.4, 3.5), ds)
+
+        def gain(h_, period):
+            r = h_['spanning'].loc[period]
+            return f"{num(r['dSharpe'], '{:+.2f}')} ({r['JK t']:.1f})"
+
+        rows = [[short[s_], num(h_['table'].loc['Full', 'Sharpe']), num(h_['table'].loc['Full', 'alpha t (NW)'], '{:.1f}'),
+                 num(h_['table'].loc['Full', 'factor R2']), f"{h_['table'].loc['Full', 'one-way turnover %/mo']:.0f}%",
+                 num(h_['table'].loc['Full', 'Sharpe after 10bps']), gain(h_, 'Full'), gain(h_, '2000-2016')]
+                for s_, h_ in hedged.items()]
+        y = table(fig, M, 3.05, W - 2 * M, ["Hedged", "Sharpe", "Alpha t", "Factor R²", "Turnover", "@ 10 bps",
+                                            "Adds to factors (t)", "Adds, 2000–2016 (t)"],
+                  rows, [0.14, 0.1, 0.1, 0.11, 0.11, 0.1, 0.17, 0.17], size=14, row_h=0.4)
+        text(fig, M, y - 0.15, "Each score's long/short minus its factor exposure, hedged like the SDF: betas at each refit from "
+             f"the model's own score rebuilt over the previous 10 years (from {min(h_['monthly'].index.min() for h_ in ds) // 10000}). "
+             "'Adds to factors': the rise in "
+             "the Sharpe ratio of the factors' in-sample tangency portfolio when the hedged score joins it, with a "
+             "Jobson-Korkie t.", W - 2 * M - 1.5, size=11, color=MUTED)
+        deck.save(fig)
+
+        # 9c. the hedged scores by period, and after costs
+        fig = deck.slide("Hedged scores by period", "Independent of the factors, and after costs")
+        msc.plot_hedged_sharpe_by_period_multi(chart(fig, M + 0.2, 2.6, 6.3, 4.2), ds)
+        decades = [p_ for p_ in ['Full', '1980s', '1990s', '2000s', '2010s'] if p_ in ds[0]['table'].index]
+        rows = [[p_ if p_ != 'Full' else "Full sample"]
+                + [num(h_['table'].loc[p_, 'Sharpe']) for h_ in ds]
+                + [num(h_['table'].loc[p_, 'Sharpe after 10bps']) for h_ in ds] for p_ in decades]
+        tx, tw = 7.5, W - M - 7.5
+        widths = [0.16] + [0.84 / (2 * len(ds))] * (2 * len(ds))
+        for label_, first in [("Sharpe, gross", 1), ("After 10 bps", 1 + len(ds))]:     # labels over the column groups
+            gx = tx + tw * sum(widths[:first])
+            fig.text((gx + 0.12) / W, 7.05 / H, label_, fontsize=14, weight="bold", color=ACCENT, va="bottom")
+            fig.add_artist(Line2D([(gx + 0.1) / W, (gx + tw * sum(widths[first:first + len(ds)]) - 0.1) / W],
+                                  [7.0 / H, 7.0 / H], color=ACCENT, linewidth=1))
+        y = table(fig, tx, 6.9, tw, ["Period"] + [short[s_] for s_ in hedged] * 2, rows, widths,
+                  size=14, row_h=0.52, bold=(0,))
+        text(fig, tx, y - 0.3, "Sharpe ratios of the hedged score long/shorts, before and after 10 bps a trade (hedge "
+             "trading included). Hedge ratios at each refit from the model's score rebuilt over the previous 10 years.",
+             tw, size=13, color=MUTED)
+        deck.save(fig)
+
+        # 9d. does the edge persist? horizon decay of the (unhedged) scores
+        with_decay = [h_ for h_ in ds if h_['decay'] is not None]
+        if with_decay:
+            fig = deck.slide("Does the edge persist?", "How much of the score's return is left 3, 6 and 12 months later")
+            msc.plot_score_decay_multi(chart(fig, M + 0.2, 2.75, 6.4, 3.75), with_decay)
+            horizons = [h for h in [1, 3, 6, 12] if h in with_decay[0]['decay'].index]
+            dec0 = with_decay[0]['decay']                      # the score (blue), for the return column and the text
+            rows = [[f"Month {h}", f"{num(dec0.loc[h, 'ann. return %'], '{:+.1f}')} ({dec0.loc[h, 't-stat']:.1f})"]
+                    + [num(h_['decay'].loc[h, 'rank IC'], '{:+.3f}') for h_ in with_decay] for h in horizons]
+            tx, tw = 8.1, W - M - 8.1
+            widths = [0.2, 0.26] + [0.54 / len(with_decay)] * len(with_decay)
+            gx = tx + tw * sum(widths[:2])                     # label over the rank-IC columns
+            fig.text((gx + 0.12) / W, 7.05 / H, "Rank IC with the month-k return", fontsize=13, weight="bold",
+                     color=ACCENT, va="bottom")
+            fig.add_artist(Line2D([(gx + 0.1) / W, (tx + tw - 0.1) / W], [7.0 / H, 7.0 / H], color=ACCENT, linewidth=1))
+            y = table(fig, tx, 6.9, tw, ["", f"{with_decay[0]['label']} return, %/yr (t)"] + [h_['label'] for h_ in with_decay],
+                      rows, widths, size=14, row_h=0.46)
+            text(fig, tx, y - 0.25, "How it is measured: the unhedged scores' long/shorts are formed as usual, then the "
+                 "same positions are held and the return earned in month k alone is compared with month 1 (left; 1.0 = "
+                 "as much as month 1, below 0 = the positions lose money). The rank IC correlates the score with each "
+                 "stock's return in month k.", tw, size=12, color=MUTED)
+            r = {h: dec0.loc[h] for h in horizons}
+            text(fig, M, 1.95, f"What it shows: the {with_decay[0]['label'].lower()} earns "
+                 f"{num(r[1]['ann. return %'], '{:.1f}')}% a year in the month after it is formed (t {r[1]['t-stat']:.1f}), "
+                 f"then gives much of it back: {num(r[3]['ann. return %'], '{:+.1f}')}% a year in month 3 "
+                 f"(t {r[3]['t-stat']:.1f}) and {num(r[6]['ann. return %'], '{:+.1f}')}% in month 6. The information lasts "
+                 f"about a month, so the score must be rebalanced monthly, which is why its turnover is "
+                 f"{cost_all['one-way turnover %/mo']:.0f}% a month. The later losses are likely the SDF's short-momentum "
+                 "loading (Factor exposure): stocks the score favours tend to keep underperforming for some months.",
+                 W - 2 * M, size=14, color=TEXT)
+            deck.save(fig)
+
+        # 9e. is the alpha a size or market-beta bet?
+        with_decomp = [h_ for h_ in ds if h_['decomp'] is not None]
+        if with_decomp:
+            fig = deck.slide("Size and beta", "Adding size and beta to the hedge leaves the alpha")
+            msc.plot_hedge_decomposition_multi(chart(fig, M + 0.2, 2.75, 6.4, 3.75), with_decomp)
+            d0 = with_decomp[0]                                # the score (blue), for the table and the text
+            specs = [sp for sp in ['9 factors', '9 + size', '9 + size + beta'] if sp in d0['decomp'].index]
+            rows = [[sp, num(d0['decomp'].loc[sp, 'Sharpe']), num(d0['decomp'].loc[sp, 'alpha t (NW)'], '{:.1f}'),
+                     num(d0['decomp'].loc[sp, 'factor R2']),
+                     f"{d0['decomp'].loc[sp, 'size beta']:+.2f} ({d0['decomp'].loc[sp, 'size beta t']:.1f})"]
+                    for sp in specs]
+            tx, tw = 8.1, W - M - 8.1
+            y = table(fig, tx, 6.9, tw, [f"{d0['label']}, hedged on", "Sharpe", "Alpha t", "R²", "Size loading (t)"], rows,
+                      [0.3, 0.15, 0.15, 0.13, 0.27], size=14, row_h=0.5)
+            text(fig, tx, y - 0.25, "How it is tested: two factors are added to the hedge, size (long small, short large "
+                 "stocks) and market beta (long high-beta, short low-beta), built like the nine, with betas from the same "
+                 "rebuilt score histories. Size loading: the hedged score regressed on the size factor.", tw,
+                 size=12, color=MUTED)
+            a, b, c = (d0['decomp'].loc[sp] for sp in ['9 factors', '9 + size', '9 + size + beta'])
+            others = [h_ for h_ in with_decomp[1:]]
+            other_txt = "; ".join(f"{h_['label'].lower()} {num(h_['decomp'].loc['9 factors', 'Sharpe'])} → "
+                                  f"{num(h_['decomp'].loc['9 + size + beta', 'Sharpe'])}" for h_ in others)
+            text(fig, M, 1.95, f"What it shows: hedging size as well moves the {d0['label'].lower()}'s Sharpe ratio from "
+                 f"{num(a['Sharpe'])} to {num(b['Sharpe'])}, and adding beta to {num(c['Sharpe'])} (alpha t "
+                 f"{a['alpha t (NW)']:.1f} → {c['alpha t (NW)']:.1f}). Its size loading stays near zero "
+                 f"({c['size beta']:+.2f}, t {c['size beta t']:.1f}): most of the SDF's gross return comes from smaller "
+                 "stocks, but the alpha left after hedging is not a size bet. Beta takes a little more, so part of the "
+                 "return came with market-beta exposure, but most of it survives"
+                 + (f" ({other_txt})." if others else "."), W - 2 * M, size=14, color=TEXT)
+            deck.save(fig)
+
     # 10. scores by period
     def tilt(p):
         for comp, sign in [(f"{DEFAULT_SCORE} - sdf_weight", 1), (f"sdf_weight - {DEFAULT_SCORE}", -1)]:
@@ -358,109 +474,148 @@ def build(d, path, preview_dir=None):
         return "n/a"
 
     fig = deck.slide("Scores by period", "Score long/short Sharpe ratios by period")
+
+    def hedged_sharpe(s_, p):
+        return num(hedged[s_]['table'].loc[p, 'Sharpe']) if s_ in hedged and p in hedged[s_]['table'].index else "n/a"
+
     rows = [[p if p != "Full" else f"{y0}–{y1}"] + [num(perf.loc[("all stocks", s, p), "Sharpe"]) for s in scores]
+            + [hedged_sharpe(s, p) for s in hedged]
             + [num(perf.loc[("all stocks", DEFAULT_SCORE, p), "alpha t (NW)"], "{:.1f}"), tilt(p)] for p in ["Full"] + periods]
-    y = table(fig, M, 6.9, W - 2 * M, ["Period"] + [short[s] for s in scores] + ["Score alpha t", "Tilt gain, %/mo (t)"],
-              rows, [0.16, 0.15, 0.15, 0.14, 0.18, 0.22], size=17, row_h=0.6, bold=(0,))
+    n_cols = len(scores) + len(hedged)
+    y = table(fig, M, 6.9, W - 2 * M, ["Period"] + [short[s] for s in scores] + [f"{short[s]} hedged" for s in hedged]
+              + ["Score alpha t", "Tilt gain, %/mo (t)"],
+              rows, [0.13] + [0.6 / n_cols] * n_cols + [0.11, 0.16], size=15, row_h=0.56, bold=(0,))
     text(fig, M, y - 0.4, f"Tilt gain is the {SCORE_LABEL} minus sdf_weight, with a Newey-West t: what the within-node tilt adds "
-         "to the plain SDF weights.", W - 2 * M - 1.5, size=17)
+         "to the plain SDF weights. Hedged: each score's long/short minus its factor exposure, with betas at each refit "
+         "from the model's score rebuilt over the previous 10 years"
+         + (f"; its first row covers {min(h_['monthly'].index.min() for h_ in ds) // 10000}–{y1}."
+            if ds and min(h_['monthly'].index.min() for h_ in ds) // 10000 != y0 else "."), W - 2 * M - 1.5, size=15)
     deck.save(fig)
 
-    # 11. statement
-    fig = deck.slide("Where the return comes from", dark=True)
-    fig.text(M / W, 6.9 / H, f"{small_share:.0f}%", fontsize=120, family=SERIF, weight="bold", color=ACCENT_LIGHT, va="top")
-    text(fig, M, 4.4, f"of the SDF's market-adjusted return comes from the {small_label} of stocks by market cap",
-         11.5, size=28, color=BG, family=SERIF)
-    text(fig, M, 2.6, " · ".join(f"{b} {num(contrib_full[b])}% a year" for b in buckets), 13.5, size=16, color=ON_DARK)
+    # 11. statement: the factor-hedged score's alpha is not a size bet
+    by_size = msc.load_hedged_by_size(REGION, UNIVERSE, VARIANT)
+    dec = hedged[DEFAULT_SCORE]['decomp'] if DEFAULT_SCORE in hedged else None
+    fig = deck.slide("Size-neutral alpha" if by_size is not None else "Where the return comes from", dark=True)
+    if by_size is not None:
+        sh_in = by_size['Sharpe within']
+        fig.text(M / W, 6.9 / H, f"{int((sh_in > 0).sum())} of {len(sh_in)}", fontsize=110, family=SERIF, weight="bold",
+                 color=ACCENT_LIGHT, va="top")
+        text(fig, M, 4.55, "size quintiles in which the factor-hedged score earns on its own: Sharpe ratio "
+             f"{num(sh_in.iloc[0])} in the smallest and {num(sh_in.iloc[-1])} in the largest", 12.5, size=26, color=BG,
+             family=SERIF)
+        if dec is not None:
+            text(fig, M, 2.75, f"Its loading on a size factor is {dec.loc['9 factors', 'size beta']:+.2f} "
+                 f"(t {dec.loc['9 factors', 'size beta t']:.1f}), and hedging size as well leaves a Sharpe ratio of "
+                 f"{num(dec.loc['9 + size', 'Sharpe'])}: the alpha is not a size bet.", 13.5, size=17, color=ON_DARK)
+        text(fig, M, 1.75, f"By contrast, {small_share:.0f}% of the market-adjusted SDF's return comes from the "
+             f"{small_label} of stocks by market cap.", 13.5, size=14, color="#9fb0c6")
+    else:
+        fig.text(M / W, 6.9 / H, f"{small_share:.0f}%", fontsize=120, family=SERIF, weight="bold", color=ACCENT_LIGHT,
+                 va="top")
+        text(fig, M, 4.4, f"of the SDF's market-adjusted return comes from the {small_label} of stocks by market cap",
+             11.5, size=28, color=BG, family=SERIF)
     deck.save(fig)
 
-    # 12. size contribution
-    fig = deck.slide("Size breakdown", "Contribution and weight by market-cap quintile")
-    ax1, ax2 = chart(fig, M + 0.7, 2.0, 6.2, 4.6), chart(fig, M + 8.0, 2.0, 6.2, 4.6)
-    mc.plot_size_contribution([ax1, ax2], d)
-    text(fig, M, 1.45, f"The largest {n_small * 100 // N_SIZE_BUCKETS}% of stocks hold {large_weight:.0f}% of the SDF's gross weight "
-         f"and contribute {num(large_contrib)}% a year.", W - 2 * M, size=17, color=TEXT)
-    deck.save(fig)
+    if by_size is not None:
+        labels = list(by_size.index)
+        raw_within = [perf.loc[(f"size {b}", DEFAULT_SCORE, "Full"), "Sharpe"] for b in labels]
+        hedged_small = by_size['share of return %'].iloc[:n_small].sum()
 
-    # 13. size over time
-    fig = deck.slide("Size breakdown over time", "Cumulative contribution by market-cap quintile")
-    mc.plot_size_cumulative(chart(fig, M + 0.8, 1.0, 7.6, 5.9), d)
-    ex = d["exposure"]
-    rows = [[b, f"{ex.loc[b, 'median mkt_cap']:,.0f}", f"{ex.loc[b, 'stocks held/mo']:.0f}", num(contrib_full[b])] for b in buckets]
-    y = table(fig, 9.9, 6.9, W - M - 9.9, ["Quintile", "Median cap", "Held", "%/yr"], rows, [0.3, 0.26, 0.2, 0.24], size=14)
-    text(fig, 9.9, y - 0.25, "Median market cap in the units of the characteristic files; held = median number of stocks with a "
-         "non-zero SDF weight; %/yr = contribution to Return_mkt_adj.", W - M - 9.9, size=12, color=MUTED)
-    deck.save(fig)
+        # 12. the hedged score by size: where its return comes from, and how it does inside each quintile
+        fig = deck.slide("The hedged score by size", "The factor-hedged score earns in every size quintile")
+        msc.plot_size_share(chart(fig, M + 0.2, 2.65, 6.6, 3.85), labels,
+                            (contrib_full[labels] / contrib_full.sum() * 100).to_numpy(dtype=float),
+                            by_size['share of return %'].to_numpy(dtype=float))
+        msc.plot_size_sharpe_within(chart(fig, M + 8.0, 2.65, 6.6, 3.85), labels, raw_within,
+                                    by_size['Sharpe within'].to_numpy(dtype=float))
+        text(fig, M, 1.85, f"Right: the score's long/short built only from each quintile's stocks. Unhedged it barely earns "
+             f"outside the smallest stocks; hedged on the nine factors it earns in all five (Sharpe "
+             f"{num(by_size['Sharpe within'].iloc[0])} to {num(by_size['Sharpe within'].iloc[-1])}, alpha t "
+             f"{by_size['alpha t within'].min():.1f} to {by_size['alpha t within'].max():.1f}), so the alpha is not a "
+             f"size bet. Left: its return still leans to smaller stocks, {hedged_small:.0f}% from the {small_label} "
+             f"(the SDF: {small_share:.0f}%), because the alpha is larger there, not because it is long small stocks.",
+             W - 2 * M, size=14, color=TEXT)
+        deck.save(fig)
 
-    # 14. scores within size groups
-    fig = deck.slide("Scores within size groups", "Score long/short Sharpe ratio within each quintile")
-    mc.plot_size_sharpe(chart(fig, M + 0.7, 1.9, W - 2 * M - 0.8, 4.9), d)
-    sh = [perf.loc[(f"size {b}", DEFAULT_SCORE, "Full"), "Sharpe"] for b in buckets]
-    text(fig, M, 1.4, f"The {SCORE_LABEL}: Sharpe ratio {num(sh[0])} in the smallest quintile and {num(sh[-1])} in the largest.",
-         W - 2 * M, size=17, color=TEXT)
-    deck.save(fig)
+        # 13. the hedged score within size groups, after costs
+        fig = deck.slide("Hedged score and trading costs", "The factor-hedged score within size groups, after costs")
+        hfull = hedged[DEFAULT_SCORE]['table'].loc['Full'] if DEFAULT_SCORE in hedged else None
+        rows = []
+        if hfull is not None:
+            rows.append(["All stocks", f"{cost_all['stocks scored/mo']:,.0f}", num(hfull['Sharpe']),
+                         num(hfull['alpha t (NW)'], '{:.1f}'), f"{hfull['one-way turnover %/mo']:.0f}%",
+                         f"{num(hfull['break-even cost bps'], '{:.0f}')} bps", num(hfull['Sharpe after 10bps']),
+                         num(cost_all['Sharpe after 10bps'])])
+        for b in labels:
+            r_ = by_size.loc[b]
+            raw_net = costs.loc[(f"size {b}", DEFAULT_SCORE), "Sharpe after 10bps"] if (f"size {b}", DEFAULT_SCORE) in costs.index else None
+            rows.append([f"{b} only", f"{r_['stocks/mo']:,.0f}", num(r_['Sharpe within']), num(r_['alpha t within'], '{:.1f}'),
+                         f"{r_['turnover within %/mo']:.0f}%", f"{num(r_['break-even within bps'], '{:.0f}')} bps",
+                         num(r_['Sharpe after 10bps within']), num(raw_net) if raw_net is not None else "n/a"])
+        y = table(fig, M, 6.9, W - 2 * M, ["Stocks used", "Stocks/mo", "Sharpe", "Alpha t", "Turnover", "Break-even",
+                                           "@ 10 bps", "Unhedged @ 10 bps"],
+                  rows, [0.16, 0.11, 0.1, 0.1, 0.11, 0.13, 0.11, 0.18], size=15, row_h=0.5, bold=(0,))
+        text(fig, M, y - 0.3, "Each row builds the score's long/short from those stocks only and hedges it on the nine factors "
+             "(betas at each refit from the model's score rebuilt over the previous 10 years); turnover and costs include "
+             "trading the hedge. Break-even "
+             "is the one-way cost per trade that wipes out the return. The last column is the same long/short without the "
+             "hedge, for comparison.", W - 2 * M - 1.5, size=14, color=MUTED)
+        deck.save(fig)
+    else:
+        # size breakdown of the SDF when the hedged-score tables are missing
+        fig = deck.slide("Size breakdown", "Contribution and weight by market-cap quintile")
+        ax1, ax2 = chart(fig, M + 0.7, 2.0, 6.2, 4.6), chart(fig, M + 8.0, 2.0, 6.2, 4.6)
+        mc.plot_size_contribution([ax1, ax2], d)
+        deck.save(fig)
 
-    # 15. turnover and costs
-    fig = deck.slide("Turnover and costs", f"The {SCORE_LABEL} after trading costs")
-    universes = [u for u in ["all stocks", f"size {buckets[0]}", "size >= 20th pct", "size >= 50th pct", "top 1000"]
-                 if (u, DEFAULT_SCORE) in costs.index]
-    rows = []
-    for u in universes:
-        c = costs.loc[(u, DEFAULT_SCORE)]
-        label = {"all stocks": "All stocks", "top 1000": "Top 1,000", f"size {buckets[0]}": f"{buckets[0]} only"}.get(u, u)
-        rows.append([label.replace("size >=", "Size ≥"),
-                     f"{c['stocks scored/mo']:,.0f}", num(perf.loc[(u, DEFAULT_SCORE, "Full"), "Sharpe"]),
-                     f"{c['one-way turnover %/mo']:.0f}%", f"{num(c['break-even cost bps'], '{:.0f}')} bps",
-                     num(c["Sharpe after 10bps"]), num(c["Sharpe after 25bps"])])
-    y = table(fig, M, 6.9, W - 2 * M, ["Universe", "Stocks", "Sharpe", "Turnover", "Break-even", "@ 10 bps", "@ 25 bps"],
-              rows, [0.24, 0.12, 0.12, 0.13, 0.15, 0.12, 0.12], size=17, row_h=0.6)
-    text(fig, M, y - 0.4, "Turnover is one-way per month, on a full stock × month grid so exits count as sales. Break-even is the "
-         "one-way cost per trade that wipes out the return; the last two columns are Sharpe ratios net of that cost per trade.",
-         W - 2 * M - 1.5, size=16)
-    deck.save(fig)
-
-    # optional: hedged portfolio after costs (hedge_analysis.py)
+    # the factor-hedged SDF after costs, and trading it more slowly (hedge_analysis.py, turnover_controls.py)
     if d.get("hedge") is not None:
         hg = d["hedge"]
         alone, hedged_p = "SDF alone (Return_mkt_adj)", "Hedged (Return)"
-        fig = deck.slide("Tradable portfolio", "The factor-hedged SDF after trading costs")
-        rows = [[p if p != "Full" else f"{y0}–{y1}", num(hg.loc[(alone, p), "Sharpe"]), num(hg.loc[(alone, p), "Sharpe after 10bps"]),
-                 num(hg.loc[(hedged_p, p), "Sharpe"]), num(hg.loc[(hedged_p, p), "Sharpe after 10bps"]),
-                 num(hg.loc[(hedged_p, p), "Sharpe after 25bps"]), f"{num(hg.loc[(hedged_p, p), 'break-even cost bps'], '{:.0f}')} bps"]
-                for p in ["Full"] + periods]
-        y = table(fig, M, 6.9, W - 2 * M, ["Period", "SDF alone", "@ 10 bps", "Hedged", "@ 10 bps", "@ 25 bps", "Break-even"],
-                  rows, [0.16, 0.14, 0.14, 0.14, 0.14, 0.14, 0.14], size=17, row_h=0.6, bold=(0,))
+        fig = deck.slide("Tradable portfolio", "The factor-hedged SDF after costs, and trading it more slowly")
+        rows1 = [[p if p != "Full" else f"{y0}–{y1}", num(hg.loc[(alone, p), "Sharpe"]), num(hg.loc[(alone, p), "Sharpe after 10bps"]),
+                  num(hg.loc[(hedged_p, p), "Sharpe"]), num(hg.loc[(hedged_p, p), "Sharpe after 10bps"]),
+                  num(hg.loc[(hedged_p, p), "Sharpe after 25bps"]), f"{num(hg.loc[(hedged_p, p), 'break-even cost bps'], '{:.0f}')} bps"]
+                 for p in ["Full"] + periods]
+        head1 = ["Period", "SDF alone", "@ 10 bps", "Hedged", "@ 10 bps", "@ 25 bps", "Break-even"]
+        w1 = [0.16, 0.14, 0.14, 0.14, 0.14, 0.14, 0.14]
+        ct = d["controls"].loc["Hedged"] if d.get("controls") is not None else None
+        if ct is not None:
+            rows2 = [[c, f"{ct.loc[c, 'one-way turnover % of book']:.0f}%", num(ct.loc[c, "Sharpe"]),
+                      f"{num(ct.loc[c, 'break-even cost bps'], '{:.0f}')} bps", num(ct.loc[c, "Sharpe after 10bps"]),
+                      num(ct.loc[c, "Sharpe after 25bps"])] for c in ct.index]
+            head2 = ["Trading rule, hedged SDF", "Turnover", "Sharpe", "Break-even", "@ 10 bps", "@ 25 bps"]
+            w2 = [0.3, 0.14, 0.14, 0.15, 0.13, 0.14]
+        for size_, rh in [(15, 0.44), (14, 0.4), (13, 0.36), (12, 0.33)]:     # largest that fits both tables
+            need = table_height(W - 2 * M, head1, rows1, w1, size_, rh) + 0.45
+            if ct is not None:
+                need += table_height(W - 2 * M, head2, rows2, w2, size_, rh)
+            if 6.9 - need >= 1.55:
+                break
+        y = table(fig, M, 6.9, W - 2 * M, head1, rows1, w1, size=size_, row_h=rh, bold=(0,))
+        if ct is not None:
+            y = table(fig, M, y - 0.45, W - 2 * M, head2, rows2, w2, size=size_, row_h=rh)
+            best10 = ct["Sharpe after 10bps"].idxmax()
+            note = (f" Slower trading: {best10} gives the best Sharpe after 10 bps "
+                    f"({num(ct.loc[best10, 'Sharpe after 10bps'])}); partial rebalancing moves part of the way to the new "
+                    "target each month, averaging holds the mean of recent targets.")
+        else:
+            note = ""
         f_h = hg.loc[(hedged_p, "Full")]
-        text(fig, M, y - 0.4, f"Sharpe ratios. Hedged: the SDF's stock positions minus its factor exposure, held through the "
-             f"factor portfolios' stocks, with hedge ratios from the last refit. It turns over "
-             f"{f_h['one-way turnover % of book']:.0f}% of its book a month (one-way); costs are per unit traded.",
-             W - 2 * M - 1.5, size=16)
-        deck.save(fig)
-
-    # optional: turnover controls (turnover_controls.py)
-    if d.get("controls") is not None:
-        ct = d["controls"].loc["Hedged"]
-        base = ct.loc["rebalance 100% a month"]
-        fig = deck.slide("Turnover controls", "Slower trading of the hedged portfolio")
-        rows = [[c, f"{ct.loc[c, 'one-way turnover % of book']:.0f}%", num(ct.loc[c, "Sharpe"]),
-                 f"{num(ct.loc[c, 'break-even cost bps'], '{:.0f}')} bps", num(ct.loc[c, "Sharpe after 10bps"]),
-                 num(ct.loc[c, "Sharpe after 25bps"])] for c in ct.index]
-        y = table(fig, M, 6.9, W - 2 * M, ["Trading rule", "Turnover", "Sharpe", "Break-even", "@ 10 bps", "@ 25 bps"],
-                  rows, [0.3, 0.14, 0.14, 0.15, 0.13, 0.14], size=17, row_h=0.6)
-        best10, best25 = ct["Sharpe after 10bps"].idxmax(), ct["Sharpe after 25bps"].idxmax()
-        text(fig, M, y - 0.4, f"Monthly rebalancing: Sharpe {num(base['Sharpe after 10bps'])} after 10 bps and "
-             f"{num(base['Sharpe after 25bps'])} after 25 bps. Best after 10 bps: {best10} ({num(ct.loc[best10, 'Sharpe after 10bps'])}); "
-             f"after 25 bps: {best25} ({num(ct.loc[best25, 'Sharpe after 25bps'])}). Partial rebalancing moves a fraction of the "
-             "way to the new target each month; averaging holds the mean of recent targets.", W - 2 * M - 1.5, size=16)
+        text(fig, M, y - 0.25, f"Hedged: the SDF's stock positions minus its factor exposure, held through the factor portfolios' "
+             f"stocks with hedge ratios from the last refit; it turns over {f_h['one-way turnover % of book']:.0f}% of its "
+             f"book a month (one-way), costs per unit traded." + note, W - 2 * M - 1.5, size=13, color=MUTED)
         deck.save(fig)
 
     # 16. caveats
     fig = deck.slide("Caveats", "Read the numbers with these in mind")
     items = [
-        ("Size concentration", f"{small_share:.0f}% of the SDF return comes from the {small_label} of stocks."),
+        ("Size concentration", f"{small_share:.0f}% of the market-adjusted SDF return comes from the {small_label} of "
+                               "stocks; the hedged score earns in every size quintile, but more in smaller stocks."),
         ("Gross of costs", f"Headline numbers ignore about {cost_all['one-way turnover %/mo']:.0f}% one-way turnover a month."),
         ("Alpha benchmark", "The characteristic factors weight all stocks, so alphas of large-cap portfolios against them can overstate."),
-        ("Factor normaliser", "Factor returns and the hedge depend on rank_normalise; results from a stand-in version will differ slightly."),
+        ("Factor normaliser", "Factor returns, score weights and hedges depend on rank_normalise, and its tie rule matters: "
+                              "stocks in no held node all score 0. Another normaliser moves the hedged score's Sharpe by ~0.1."),
         ("Selection effect", "Tree portfolios are filtered by their missing-data rate over the full sample."),
         ("One sample", f"{LABEL}, {y0}–{y1}, one configuration; nothing tested beyond it."),
     ]

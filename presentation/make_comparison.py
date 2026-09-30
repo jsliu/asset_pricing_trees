@@ -19,11 +19,9 @@ import pandas as pd
 import make_charts as mc
 from make_deck import (Deck, M, W, NAVY, ACCENT, ACCENT_LIGHT, TEXT, BODY, ON_DARK, BG, SERIF,
                        text, table, table_height, box, chart, num)
-from src.constants import DataPaths, parse_variant
+from make_charts import describe
+from src.constants import DataPaths
 
-UNIVERSE_LABELS = {"full": "Full", "largecap": "Large cap", "largecap001": "Large cap 0.01%"}
-UNIVERSE_RULES = {"full": "All stocks", "largecap": "Market cap ≥ 0.001% of the total",
-                  "largecap001": "Market cap ≥ 0.01% of the total"}
 COLORS = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#4a3aa7", "#e34948"]  # categorical 1-8
 SCORE = "size_oriented_score"
 SCORE_LABEL = "Score"          # name of SCORE on the slides
@@ -42,24 +40,6 @@ def run_token(region, universe, variant):
     return (f"{region}@" if region else "") + (universe or "") + (f":{variant}" if variant else "")
 
 
-TAG_LABELS = {"vw": "VW", "slow3": "slow d3", "screen3": "screen d3", "EI": "EI", "EI_sub": "EI sub", "daily": "daily",
-              "val": "val"}
-TAG_DESCRIPTIONS = {"slow3": "slow characteristics, depth 3", "screen3": "screened characteristics, depth 3",
-                    "EI": "composite factors", "EI_sub": "sub-factors", "daily": "daily-data characteristics",
-                    "val": "validated pruning, 20y window"}
-
-
-def describe(region, universe, variant):
-    """Column label and description of a run."""
-    equal_weighted, tree, prune = parse_variant(variant)
-    name = UNIVERSE_LABELS.get(universe, universe) if universe else ("All regions" if region == "ALL" else region)
-    if region and universe:
-        name = f"{region} {name}"
-    tags = [t for t in (None if equal_weighted else "vw", tree, prune) if t]
-    label = " ".join([name] + [TAG_LABELS.get(t, t) for t in tags])
-    rule = UNIVERSE_RULES.get(universe, f"Universe {universe}") if universe else f"Company data, region {region}"
-    extras = [TAG_DESCRIPTIONS[t] for t in (tree, prune) if t in TAG_DESCRIPTIONS]
-    return label, ", ".join([rule, "equal-weighted" if equal_weighted else "value-weighted"] + extras)
 
 
 def load(region, universe, variant):
@@ -160,8 +140,8 @@ def build(runs, path, preview_dir=None):
     col_w = [0.22] + [0.78 / n] * n
     wide_w = [0.3] + [0.7 / n] * n
     mk_key, hk = ("Return_mkt_adj", "Full"), ("Hedged (Return)", "Full")
-    hscore = lambda r, p, col, fmt="{:.2f}": get(r["d"]["hscore"], (f"{SCORE} long/short, hedged on rebuilt history", p),
-                                                  col, fmt)
+    hscore = lambda r, p, col, fmt="{:.2f}", unit="": get(r["d"]["hscore"],
+                                                          (f"{SCORE} long/short, hedged on rebuilt history", p), col, fmt, unit)
     neutral = lambda r, p, col, fmt="{:.2f}": get(r["d"]["neutral"], ("neutral", p), col, fmt)
     nsum = lambda r, col, fmt="{:.2f}", unit="": get(r["d"]["nsum"], col, "neutral", fmt, unit)
     sdf = lambda r, series, p, col, fmt="{:.2f}": get(r["d"]["sdf"], (series, p), col, fmt)
@@ -333,19 +313,23 @@ def build(runs, path, preview_dir=None):
          W - 2 * M - 1.5, size=15)
     deck.save(fig)
 
-    # 12. stock scores
-    fig = deck.slide("Stock scores", f"{SCORE_LABEL} long/short by run")
-    stats = [("Sharpe (gross)", lambda r: score(r, "Full", "Sharpe")),
-             ("Alpha t", lambda r: score(r, "Full", "alpha t (NW)", "{:.1f}")),
-             ("ICIR", lambda r: score(r, "Full", "ICIR")),
-             ("One-way turnover", lambda r: cost(r, "one-way turnover %/mo", "{:.0f}", "%")),
-             ("Break-even, bps", lambda r: cost(r, "break-even cost bps", "{:.0f}")),
-             ("Sharpe after 10 bps", lambda r: cost(r, "Sharpe after 10bps")),
-             (f"Sharpe, {last}", lambda r: score(r, last, "Sharpe"))]
+    # 12. stock scores: the factor-hedged score by run (score_hedge.py), with the raw score for comparison
+    fig = deck.slide("Stock scores", f"{SCORE_LABEL} long/short hedged against the factors, by run")
+    stats = [("Sharpe (gross)", lambda r: hscore(r, "Full", "Sharpe")),
+             ("  unhedged", lambda r: score(r, "Full", "Sharpe")),
+             ("Alpha t", lambda r: hscore(r, "Full", "alpha t (NW)", "{:.1f}")),
+             ("Factor R² left", lambda r: hscore(r, "Full", "factor R2")),
+             ("One-way turnover", lambda r: hscore(r, "Full", "one-way turnover %/mo", "{:.0f}", "%")),
+             ("Break-even, bps", lambda r: hscore(r, "Full", "break-even cost bps", "{:.0f}")),
+             ("Sharpe after 10 bps", lambda r: hscore(r, "Full", "Sharpe after 10bps")),
+             ("  unhedged", lambda r: cost(r, "Sharpe after 10bps")),
+             (f"Sharpe, {last}", lambda r: hscore(r, last, "Sharpe")),
+             (f"Sharpe after 10 bps, {last}", lambda r: hscore(r, last, "Sharpe after 10bps"))]
     rows = [[name] + [f(r) for r in runs] for name, f in stats]
-    y = table(fig, M, 6.9, W - 2 * M, ["Full sample"] + labels, rows, wide_w, size=16, row_h=0.55)
-    text(fig, M, y - 0.35, "Score-weighted long/short (100% long, 100% short) on same-month returns, before costs unless stated. "
-         "Compare its turnover and break-even with the hedged SDF positions.", W - 2 * M - 1.5, size=15)
+    y = table(fig, M, 6.9, W - 2 * M, ["Full sample"] + labels, rows, wide_w, size=14, row_h=0.4, bold=(0, 6))
+    text(fig, M, y - 0.25, "The score's long/short (100% long, 100% short) minus its factor exposure, hedged like the SDF: "
+         "betas at each refit from the model's own score rebuilt over the previous 10 years. Turnover and costs include "
+         "trading the hedge. 'Unhedged': the same long/short before the hedge.", W - 2 * M - 1.5, size=13)
     deck.save(fig)
 
     # 12b. factor-neutral score
@@ -358,13 +342,12 @@ def build(runs, path, preview_dir=None):
              ("One-way turnover", lambda r: nsum(r, "one-way turnover %/mo", "{:.0f}", "%")),
              ("Break-even, bps", lambda r: nsum(r, "break-even bps", "{:.0f}")),
              ("Sharpe after 10 bps", lambda r: neutral(r, "Full", "Sharpe after 10bps")),
-             (f"Sharpe after 10 bps, {last}", lambda r: neutral(r, last, "Sharpe after 10bps")),
-             ("Hedged instead: after 10 bps", lambda r: hscore(r, "Full", "Sharpe after 10bps"))]
+             (f"Sharpe after 10 bps, {last}", lambda r: neutral(r, last, "Sharpe after 10bps"))]
     rows = [[name] + [f(r) for r in runs] for name, f in stats]
-    y = table(fig, M, 6.9, W - 2 * M, ["Full sample"] + labels, rows, wide_w, size=15, row_h=0.44, bold=(0, 7))
-    text(fig, M, y - 0.3, "Each month the score is regressed across stocks on the nine factor characteristics and the "
-         "residual is the new score. Last row: the raw long/short hedged like the SDF, with each model's factor betas "
-         "from its score rebuilt over the previous 10 years, the hedge traded.", W - 2 * M - 1.5, size=14)
+    y = table(fig, M, 6.9, W - 2 * M, ["Full sample"] + labels, rows, wide_w, size=15, row_h=0.46, bold=(0, 7))
+    text(fig, M, y - 0.3, "The other way to remove the factors: each month the score is regressed across stocks on the "
+         "nine factor characteristics and the residual is the new score, with no exposure to them and no hedge to trade. "
+         "The previous page hedges the score's returns instead.", W - 2 * M - 1.5, size=14)
     deck.save(fig)
 
     # 13. size concentration

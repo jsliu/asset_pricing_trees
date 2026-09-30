@@ -74,7 +74,7 @@ class Chars:
     investment: str = 'investment'
     st_rev: str = 'st_rev'
     lt_rev: str = 'lt_rev'
-    lrunover: str = 'lturnover'
+    ltunover: str = 'lturnover'
     # the company-data characteristic sets are tree set-ups: 'EI', 'EI_sub' and 'daily' in TREE_SETUPS
     lme: str = "lme"
     returns: str = 'ret'
@@ -169,6 +169,9 @@ DAILY_CHARS = [                                                         # charac
 TREE_SETUPS = {
     None: {'chars': None, 'depth': Parameters.tree_depth},
     'slow3': {'chars': ['ac', 'beme', 'r12_2', 'op', 'investment', 'lt_rev'], 'depth': 3},   # slow-moving, shallower
+    'slow4': {'chars': ['ac', 'beme', 'idiovol', 'r12_7', 'r36_13', 'op', 'investment', 'lt_rev', 'lturnover'],
+              'depth': 4,   # 9 characteristics: st_rev and r12_2 dropped, both longer momenta added
+              'factors': ['ac', 'beme', 'idiovol', 'r12_7', 'r36_13', 'op', 'investment', 'lt_rev', 'lturnover']},  # hedge = tree chars
     # best large-cap long/short with the least decay (analysis/characteristic_screen.py), SUV swapped for beme
     'screen3': {'chars': ['investment', 's2p', 'prof', 'beme', 'cf', 'ol', 'noa', 'd2a', 'lt_rev'], 'depth': 3},
     # company data (regions): trees and factors on the same characteristics

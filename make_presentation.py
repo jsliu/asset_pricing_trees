@@ -1,6 +1,7 @@
 # %%
 """
-Runs the reporting pipeline and builds the comparison presentation, presentation/backtest_comparison.pdf.
+Runs the reporting pipeline and builds the presentation, presentation/backtest_review.pdf: the runs compared side
+by side, then one run in detail (--detail, large cap by default).
 
 For each run in RUNS whose backtest results exist (e.g. result/ret_largecap.csv or ret_largecap_vw.csv, from
 backtest.py):
@@ -8,27 +9,31 @@ backtest.py):
     2. analysis/hedge_analysis.py       factor-hedged portfolio after costs
     3. analysis/turnover_controls.py    partial rebalancing and signal averaging
     4. analysis/neutralize_scores.py    the score made neutral to the factor characteristics
-    5. analysis/score_hedge.py          the score hedged with the betas of each model's rebuilt history (slow: ~1h)
-    (6. presentation/make_deck.py, a PDF for the run alone, with --single-decks)
-then presentation/make_comparison.py puts all runs side by side in one PDF.
+    5. analysis/score_hedge.py          hedge ratios for the scores from each model's rebuilt history (slow)
+    6. analysis/factor_spanning.py      the factor-hedged scores: spanning, by period, horizon, size and beta, by size
+    (7. presentation/make_deck.py, a PDF for the run alone, with --single-decks)
+then presentation/make_comparison.py puts all runs side by side, make_deck.py shows the --detail run in full, and the
+two are merged into backtest_review.pdf (the parts are deleted).
 
 Run from the project root:
     python make_presentation.py                        all runs in RUNS, every step
     python make_presentation.py --skip-existing        reuse the analyses already done
     python make_presentation.py --only largecap largecap_vw
     python make_presentation.py --single-decks --png   also one PDF per run, and page previews
+    python make_presentation.py --detail largecap_val  the detailed part for another run (--detail none: comparison only)
 
 Company data (regions), instead of RUNS:
     python make_presentation.py --regions GL                        one region
     python make_presentation.py --regions GL US EU UK JP AP EM      several regions, side by side in one PDF
     python make_presentation.py --regions GL US --vw                value-weighted runs of those regions
-These write presentation/backtest_comparison_regions.pdf (--output to change it). The regions' backtests must
+These write presentation/backtest_review_regions.pdf (--output to change it). The regions' backtests must
 exist first: in backtest.py (and build_trees.py) set regions = ['GL', 'US', ...] and universes = [None].
 One comparison holds at most 8 runs.
 Each step's output goes to result/logs/<step>_<run>.log.
 """
 import argparse
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -61,7 +66,8 @@ STEPS = [   # script, file in the report folder it writes last
     ('analysis/hedge_analysis.py', 'hedged_score_by_period.csv'),
     ('analysis/turnover_controls.py', 'turnover_controls_summary.csv'),
     ('analysis/neutralize_scores.py', 'neutral_score_summary.csv'),
-    ('analysis/score_hedge.py', 'hedged_score_nodes_by_period.csv'),
+    ('analysis/score_hedge.py', 'hedge_betas_rebuilt_fit.csv'),      # hedge ratios the next step uses
+    ('analysis/factor_spanning.py', 'signal_hedged_by_size.csv'),
 ]
 
 
@@ -83,6 +89,24 @@ def run_args(region, universe, variant):
     return args + (['--variant', variant] if variant else [])
 
 
+def merge_pdfs(parts, out):
+    """Pages of `parts` in order into one PDF, with pypdf or poppler's pdfunite; returns True on success."""
+    try:
+        from pypdf import PdfWriter
+        writer = PdfWriter()
+        for part in parts:
+            writer.append(str(part))
+        with open(out, 'wb') as f:
+            writer.write(f)
+        return True
+    except ImportError:
+        pass
+    tool = shutil.which('pdfunite')
+    if tool is None:
+        return False
+    return subprocess.run([tool, *map(str, parts), str(out)]).returncode == 0
+
+
 def run_step(script, args, log_file, env):
     """Run one script from the project root, output to its log; returns True on success."""
     start = time.time()
@@ -102,8 +126,10 @@ def main():
     parser.add_argument('--only', nargs='+', metavar='RUN', help='only these runs, e.g. full largecap_vw GL')
     parser.add_argument('--regions', nargs='+', metavar='REGION', help='company-data regions to run instead of RUNS, e.g. GL US EU')
     parser.add_argument('--vw', action='store_true', help='with --regions: the value-weighted runs of those regions')
-    parser.add_argument('--output', help='comparison PDF name in presentation/ (default: backtest_comparison.pdf, '
-                                         'or backtest_comparison_regions.pdf with --regions)')
+    parser.add_argument('--output', help='PDF name in presentation/ (default: backtest_review.pdf, '
+                                         'or backtest_review_regions.pdf with --regions)')
+    parser.add_argument('--detail', default='largecap', metavar='RUN',
+                        help="run shown in detail after the comparison, e.g. largecap_val; 'none' for the comparison only")
     parser.add_argument('--single-decks', action='store_true', help='also build one PDF per run (make_deck.py)')
     parser.add_argument('--png', action='store_true', help='also save page previews of the PDFs')
     args = parser.parse_args()
@@ -114,7 +140,8 @@ def main():
     env = {**os.environ, 'MPLBACKEND': 'Agg'}          # charts are saved, not shown
     failed = []
     runs = [(region, None, 'vw' if args.vw else None) for region in args.regions] if args.regions else RUNS
-    output = args.output or ('backtest_comparison_regions.pdf' if args.regions else 'backtest_comparison.pdf')
+    output = args.output or ('backtest_review_regions.pdf' if args.regions else 'backtest_review.pdf')
+    comparison = output.replace('review', 'comparison') if 'review' in output else f'comparison_{output}'
 
     for region, universe, variant in runs:
         name = run_name(region, universe, variant)
@@ -143,12 +170,37 @@ def main():
     if not compared:
         print('    no run has results to compare, skipped')
     else:
-        compare_args = ['--runs', *compared, '--output', output] + (['--png'] if args.png else [])
+        compare_args = ['--runs', *compared, '--output', comparison] + (['--png'] if args.png else [])
         ok = run_step('presentation/make_comparison.py', compare_args, logs / 'make_comparison.log', env)
         if ok:
             print('    ' + (logs / 'make_comparison.log').read_text().strip().splitlines()[-1])
         else:
             failed.append('comparison: presentation/make_comparison.py')
+
+    # the detailed run after the comparison, in one PDF
+    pres = ROOT / 'presentation'
+    if (pres / comparison).exists() and not failed:
+        parts = [pres / comparison]
+        detail = next(((r, u, v) for r, u, v in runs if run_name(r, u, v) == args.detail), None)
+        print(f'detail ({args.detail}):')
+        if args.detail == 'none':
+            print('    none asked for')
+        elif detail is None or not (ROOT / paths.result_file('report', *detail, ext=None) / STEPS[0][1]).exists():
+            print('    not among the runs with results, left out')
+        elif run_step('presentation/make_deck.py', run_args(*detail) + ['--section'], logs / f'make_deck_{args.detail}.log', env):
+            parts.append(pres / paths.result_file('backtest', *detail, ext='pdf').name)
+        else:
+            failed.append(f'detail: presentation/make_deck.py {args.detail}')
+        if len(parts) == 1:
+            (pres / comparison).replace(pres / output)
+            print(f'    Saved {pres / output}')
+        elif merge_pdfs(parts, pres / output):
+            for part in parts:
+                if not (args.single_decks and part != parts[0]):      # --single-decks keeps the run's own PDF
+                    part.unlink()
+            print(f'    Saved {pres / output} ({" + ".join(p.name for p in parts)})')
+        else:
+            print(f'    no pypdf or pdfunite to merge with: the parts are {", ".join(p.name for p in parts)}')
 
     if failed:
         print('\nFailed steps:\n  ' + '\n  '.join(failed))

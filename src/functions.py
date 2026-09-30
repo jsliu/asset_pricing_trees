@@ -10,12 +10,29 @@ sys.path.append(working_dir)
 working_dir = str(pathlib.Path(__file__).parent.parent.parent.parent) + r'\code\PortfolioConstruction\src\main\python\quasar\database_sql\\'
 sys.path.append(working_dir)
 
-from AlphaWorkshop.src.main.python.alphaworkshop.functions import rank_normalise
-from AIalpha.src.main.python.aialpha.file_process import read_factor_data
-from connector import DatabaseConnector
+try:  # the external package is optional; define the local stand-in when it is not installed
+    from AlphaWorkshop.src.main.python.alphaworkshop.functions import rank_normalise
+except Exception:  # noqa: BLE001
+    from scipy.stats import norm as _norm
+
+    def rank_normalise(x, cutoff_std=None):
+        """Rank-normal transform: norm.ppf((rank - 0.5) / n) over the non-NaN values, NaN stays NaN, optionally clipped
+        at +-cutoff_std. Stand-in for the external AlphaWorkshop rank_normalise. Ties take their average rank: the
+        stocks in no held node all score 0, and with 'min' ranks that block would sit below the median and be shorted."""
+        s = pd.Series(np.asarray(x, dtype=float))
+        n = s.notna().sum()
+        z = _norm.ppf((s.rank(method='average') - 0.5) / n) if n else pd.Series(np.nan, index=s.index)
+        return np.asarray(z.clip(-cutoff_std, cutoff_std) if cutoff_std is not None else z, dtype=float)
+
 from sklearn.impute import KNNImputer
 
-import AIalpha.src.main.python.aialpha.functions as f
+try:  # company-data (region) helpers, not needed for the characteristic files
+    from AIalpha.src.main.python.aialpha.file_process import read_factor_data
+    from connector import DatabaseConnector
+    import AIalpha.src.main.python.aialpha.functions as f
+except Exception:  # noqa: BLE001
+    read_factor_data = DatabaseConnector = f = None
+
 import pandas as pd
 import numpy as np
 

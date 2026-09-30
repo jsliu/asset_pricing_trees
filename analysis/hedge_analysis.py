@@ -159,6 +159,7 @@ def hedge_score(p, w, ls, h):
     h times the factors' stock weights). Returns (hedged return, hedged weights).
     """
     dates, blocks, factors, ret = p['dates'], p['blocks'], p['factors'].loc[p['dates']], p['ret']
+    h = h[list(p['fw'].columns)]                     # the factors' order, as the stock weights below are multiplied by it
     hedged_dates = dates[blocks.isin(h.index).to_numpy()]
     h_by_date = h.loc[blocks.loc[hedged_dates].to_numpy()].set_axis(hedged_dates)
     hedged = ls.loc[hedged_dates] - (factors.loc[hedged_dates] * h_by_date).sum(axis=1)
