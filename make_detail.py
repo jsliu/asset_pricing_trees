@@ -15,6 +15,15 @@ Run from the project root:
     python make_detail.py largecap                          the large-cap model, every analysis step, then the deck
     python make_detail.py largecap_val full --skip-existing  two models, only the missing analyses
     python make_detail.py GL@:vw --deck-only --png          a region's value-weighted run, deck only, with page previews
+
+Company data (a region, no universe; the results are named [REGION_]kind[_variant], e.g. result/GL_ret_EI_sub_val.csv):
+    python make_detail.py GL                                region GL, default trees and pruning   (result/GL_ret.csv)
+    python make_detail.py GL_EI_sub_val                     region GL, EI_sub trees, validated pruning
+    python make_detail.py GL@:EI_sub_val                    the same model as [REGION@][UNIVERSE][:variant]
+    python make_detail.py GL_EI US_EI --skip-existing       two regions' EI models, only the missing analyses
+The variant's tree set-up (e.g. EI_sub) must be in TREE_SETUPS (src/constants.py), which also gives the model's factor
+characteristics; reading company data needs the AIalpha/connector packages. factor_spanning.py skips regions, so
+their decks leave out the hedged-score pages that need it.
 Each step's output goes to result/logs/<step>_<model>.log.
 """
 import argparse
