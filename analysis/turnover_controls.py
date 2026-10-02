@@ -7,8 +7,8 @@ hedge_analysis.py:
     signal averaging: hold the average of the last k monthly targets.
 Stocks without a return in a month are sold. Weight drift between rebalances is ignored.
 The same controls are applied to the factor-hedged score (the score's long/short minus its factor hedge, with the
-rebuilt-history hedge ratios of analysis/score_hedge.py), trading the whole book, score and hedge together
--> turnover_controls_score_by_period.csv, turnover_controls_score_summary.csv. Run score_hedge.py first for that.
+rebuilt-history hedge ratios of analysis/hedge_score.py), trading the whole book, score and hedge together
+-> turnover_controls_score_by_period.csv, turnover_controls_score_summary.csv. Run hedge_score.py first for that.
 
 Run backtest_report.py for the same universe first, then from the project root:
     python analysis/turnover_controls.py [<universe>] [--region GL] [--vw | --variant TAGS]      e.g. python analysis/turnover_controls.py largecap
@@ -132,5 +132,5 @@ if __name__ == '__main__':
         print(f'\n==== {LABEL}: the factor-hedged {SCORE}, traded more slowly ====')
         print(s_summary.round(2).to_string())
     else:
-        print('no hedge_betas_rebuilt.csv (run analysis/score_hedge.py): the hedged score is not traded here')
+        print('no hedge_betas_rebuilt.csv (run analysis/hedge_score.py): the hedged score is not traded here')
     print(f'\nSaved to {p["out_dir"]}')

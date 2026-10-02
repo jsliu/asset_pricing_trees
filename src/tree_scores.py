@@ -1,17 +1,22 @@
 """
 The stock-level pieces of the AP-tree backtest: which stocks sit in a tree node on a date, how they are scored within
-it, and the node weights of the original score (calc_sharpe). Moved here from stock_portfolio_pl.py and
-plot_test_sr.py (now in obsolete/), unchanged.
+it, the stock scores of a model on a date (score_stocks), and the node weights of the original score (calc_sharpe).
+Moved here unchanged from stock_portfolio_pl.py and plot_test_sr.py (now in obsolete/) and backtest.py.
 """
 import logging
 
 import numpy as np
 import pandas as pd
 import polars as pl
+from scipy.stats import norm
 from sklearn.model_selection import train_test_split
 
 from src.constants import Columns, Parameters
+from src.functions import rank_normalise
 from src.utils import tree_grows
+
+# tree_portfolio's min_node_size (src/utils.py): smaller nodes get no portfolio return
+MIN_NODE_SIZE = 50
 
 
 def get_stocks_in_node(
@@ -184,3 +189,103 @@ def calc_sharpe(tree_portfolio, ap_tree_model, use_test_data=True):
     w = sdf_wei[np.nonzero(sdf_wei)]
     combo_wei = pd.Series(w, index=best_combo, name='weight')
     return df_plot, combo_wei, best_port
+
+
+def score_stocks(comb_d, node_betas, combo_wei=None):
+    """
+    Stock scores on one date from the nodes held by the SDF (node_betas) and, if given, by the
+    original score (combo_wei); both are Series indexed by (tree_key, port_col, node_id).
+
+    final_score/norm_score: original score, node weight x geometric mean of market-wide characteristic ranks.
+    sdf_weight: the stock's weight in the SDF, sum over nodes of beta x the stock's weight in the node.
+    size_oriented_score: the same node weights beta, spread inside each node in proportion to
+        (weight in node x oriented_score), so each node still totals beta but the stocks sitting most
+        firmly inside it (by characteristic ranks inside the parent node) get more of it.
+    size_oriented_norm: size_oriented_score rank-normalised like the factor scores (see _normalise_scores).
+
+    Every stock of the date's universe (comb_d) is returned; sdf_weight and size_oriented_score are 0 for
+    stocks in no held node, final_score/norm_score are null for stocks the original score does not cover.
+    """
+    combo_wei = pd.Series(dtype=float) if combo_wei is None else combo_wei
+    node_keys = list(dict.fromkeys(
+        [k for k, w in combo_wei.items() if w != 0] + [k for k, b in node_betas.items() if b != 0]
+    ))
+
+    dfs = []
+    # tree splits are computed within each date, so growing the tree on one date alone gives the same nodes
+    for tree_key, port_col, node_id in node_keys:
+        key = (tree_key, port_col, node_id)
+
+        df_node = get_stocks_in_node(
+            comb_d,
+            tree_key,
+            port_col,
+            int(node_id),
+            Parameters.n_splits
+        )
+
+        if df_node.is_empty():
+            continue
+
+        df_scores = compute_node_scores(
+            df_node=df_node,
+            tree_key=tree_key,
+            port_col=port_col,
+            node_id=int(node_id),
+            n_split=Parameters.n_splits,
+        )
+
+        w = combo_wei.get(key, 0.0)
+        # the node's tree portfolio has no return below MIN_NODE_SIZE stocks, so the SDF holds nothing there
+        b_held = node_betas.get(key, 0.0) if df_node.height >= MIN_NODE_SIZE else 0.0
+        in_node = pl.col(Columns.size_col) / pl.col(Columns.size_col).sum()
+        tilted = in_node * pl.col("oriented_score")
+
+        dfs.append(
+            df_scores.select(
+                Columns.id_col,
+                pl.lit(w != 0).alias("in_old_score"),
+                (pl.col("factor_score") * w).alias("weighted_score"),
+                (in_node * b_held).alias("sdf_weight"),
+                (tilted / tilted.sum() * b_held).alias("size_oriented_score"),
+            )
+        )
+
+    final_df = comb_d.select(Columns.id_col)
+    if not dfs:
+        return _normalise_scores(final_df.with_columns(
+            pl.lit(None, pl.Float64).alias("final_score"), pl.lit(None, pl.Float64).alias("norm_score"),
+            pl.lit(0.0).alias("sdf_weight"), pl.lit(0.0).alias("size_oriented_score"),
+        ))
+
+    node_rows = pl.concat(dfs)
+    scores = node_rows.group_by(Columns.id_col).agg(pl.col("sdf_weight").sum(), pl.col("size_oriented_score").sum())
+
+    old = (
+        node_rows
+        .filter(pl.col("in_old_score"))
+        .group_by(Columns.id_col)
+        .agg(
+            pl.col("weighted_score").sum().alias("final_score")
+        )
+    )
+    n = old.height
+    u = ((old["final_score"].rank("min") - 0.5) / n).to_numpy()
+    old = old.with_columns(pl.Series("norm_score", norm.ppf(u), dtype=pl.Float64))
+
+    final_df = (
+        final_df
+        .join(old, on=Columns.id_col, how="left")
+        .join(scores, on=Columns.id_col, how="left")
+        .with_columns(pl.col("sdf_weight").fill_null(0.0), pl.col("size_oriented_score").fill_null(0.0))
+    )
+    return _normalise_scores(final_df)
+
+
+def _normalise_scores(scores):
+    """
+    size_oriented_norm: size_oriented_score across the whole universe (0 = not held, i.e. neutral),
+    rank-normalised with the same rank_normalise(cutoff_std=3.5) as the factor scores.
+    """
+    z = rank_normalise(scores["size_oriented_score"].to_pandas(), cutoff_std=3.5)
+    return scores.with_columns(pl.Series("size_oriented_norm", np.asarray(z, dtype=float)))

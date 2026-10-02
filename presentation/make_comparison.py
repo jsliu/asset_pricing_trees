@@ -313,7 +313,7 @@ def build(runs, path, preview_dir=None):
          W - 2 * M - 1.5, size=15)
     deck.save(fig)
 
-    # 12. stock scores: the factor-hedged score by run (score_hedge.py), with the raw score for comparison
+    # 12. stock scores: the factor-hedged score by run (hedge_score.py), with the raw score for comparison
     fig = deck.slide("Stock scores", f"{SCORE_LABEL} long/short hedged against the factors, by run")
     stats = [("Sharpe (gross)", lambda r: hscore(r, "Full", "Sharpe")),
              ("  unhedged", lambda r: score(r, "Full", "Sharpe")),

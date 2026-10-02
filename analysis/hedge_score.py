@@ -15,7 +15,7 @@ hedge_betas_rebuilt.csv, which analysis/factor_spanning.py uses for all its hedg
 hedged long/short is also saved as hedged_score_nodes_by_period.csv.
 
 Run backtest.py, backtest_report.py and hedge_analysis.py for the same run first, then from the project root:
-    python analysis/score_hedge.py [<universe>] [--region GL] [--vw | --variant TAGS]
+    python analysis/hedge_score.py [<universe>] [--region GL] [--vw | --variant TAGS]
 """
 import sys
 import time
@@ -23,7 +23,6 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))   # project root, for src/ and backtest.py
 
-import numpy as np
 import pandas as pd
 import statsmodels.api as sm
 from joblib import Parallel, delayed
@@ -31,48 +30,13 @@ from joblib import Parallel, delayed
 from analysis.backtest_report import REGION, UNIVERSE, VARIANT, LABEL, RET_NAME, make_periods, size_buckets
 from analysis.factor_spanning import HEDGE_SPECS, extra_factors
 from analysis.hedge_analysis import SCORE, build_positions, score_weights, hedge_score, score_stats
-from backtest import score_stocks
 from build_trees import prepare_data
 from src.constants import Columns, DataPaths, TREE_SETUPS, factor_chars, parse_variant
-from src.functions import _get_weights
 from src.preprocessing import read_backtest_data
+from src.score_hedging import HEDGE_MIN, HEDGE_WINDOW, rebuilt_history
 from src.utils import build_comb
 
-HEDGE_WINDOW, HEDGE_MIN = 120, 60   # months of rebuilt score history the betas are estimated on
 SCORES = ['size_oriented_score', 'norm_score', 'sdf_weight']
-MIN_STOCKS = 30                     # fewest scored stocks for a month's long/short
-
-
-def long_short(s, r):
-    """Score-weighted long/short return of scores s on returns r (both indexed by permno), net of their mean."""
-    if len(s) < MIN_STOCKS or s.nunique() < 2:
-        return np.nan
-    w = pd.Series(np.asarray(_get_weights(s, score_weighted=True), dtype=float), index=s.index).dropna()
-    rr = r.reindex(w.index).dropna()
-    w = w.loc[rr.index]
-    return float((w * (rr - rr.mean())).sum())
-
-
-def rebuilt_history(comb_by_date, ret_by_date, bucket_by_date, node_betas, combo_wei, months):
-    """Long/short returns in each of `months` of the scores the model with node_betas (and combo_wei, the original
-    score's node weights; None leaves that score out) gives, over all stocks and within each size quintile:
-    DataFrame of months x (score, universe)."""
-    out = {}
-    for m in months:
-        comb_m = comb_by_date.get(m)
-        if comb_m is None:
-            continue
-        sc = score_stocks(comb_m, node_betas, combo_wei).select(Columns.id_col, *SCORES).to_pandas().set_index(Columns.id_col)
-        r, b = ret_by_date[m], bucket_by_date.get(m)
-        row = {}
-        for score in SCORES:
-            s = sc[score].dropna()
-            row[(score, 'all')] = long_short(s, r)
-            if b is not None:
-                for q in b.cat.categories:
-                    row[(score, q)] = long_short(s[s.index.isin(b.index[b == q])], r)
-        out[m] = row
-    return pd.DataFrame(out).T
 
 
 def refit_betas(refit, node_betas, combo_wei, comb_by_date, ret_by_date, bucket_by_date, factor_sets, dates):
@@ -80,7 +44,7 @@ def refit_betas(refit, node_betas, combo_wei, comb_by_date, ret_by_date, bucket_
     months = [m for m in dates if m < refit and m in factor_sets['9 factors'].index][-HEDGE_WINDOW:]
     if len(months) < HEDGE_MIN:
         return [], []
-    hist = rebuilt_history(comb_by_date, ret_by_date, bucket_by_date, node_betas, combo_wei, months)
+    hist = rebuilt_history(comb_by_date, ret_by_date, node_betas, combo_wei, months, SCORES, bucket_by_date)
     rows, fits = [], []
     for (score, universe), y in hist.items():
         for spec, facs in factor_sets.items():

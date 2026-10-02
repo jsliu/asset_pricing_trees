@@ -4,7 +4,7 @@ Does the factor-hedged stock score give an alpha source independent of the chara
 
 The raw score's long/short is largely the factors it is built from (factor R2 ~ 0.75), so this analysis works with
 the *hedged* score: the score's long/short minus its factor exposure. The hedge ratios are estimated at each refit the
-way the SDF's are, from the model's own score rebuilt over the previous 10 years (analysis/score_hedge.py, which
+way the SDF's are, from the model's own score rebuilt over the previous 10 years (analysis/hedge_score.py, which
 saves them to hedge_betas_rebuilt.csv; run it first). That leaves the part of the score the factors do not explain.
 Three questions are answered:
 
@@ -18,7 +18,7 @@ name added, e.g. signal_spanning_sharpe_norm_score.csv (see output_name). For th
     6. By size           the hedged positions' return by the size quintile of the stocks held, and the score
                          built and hedged within each quintile   -> signal_hedged_by_size.csv (+ _monthly.csv)
 
-Run backtest_report.py, hedge_analysis.py and score_hedge.py for the run first, then from the project root:
+Run backtest_report.py, hedge_analysis.py and hedge_score.py for the run first, then from the project root:
     python analysis/factor_spanning.py [<universe>] [--vw | --variant TAGS]     e.g. ... largecap
 Tables are printed and saved to the run's report folder, e.g. result/report_largecap/.
 """
@@ -144,7 +144,7 @@ HEDGE_SPECS = {'9 factors': [], '9 + size': ['size'], '9 + size + beta': ['size'
 
 
 def rebuilt_betas(out_dir, score, universe='all', spec='9 factors'):
-    """Hedge ratios per refit (refit date x factor) that analysis/score_hedge.py estimated from each model's rebuilt
+    """Hedge ratios per refit (refit date x factor) that analysis/hedge_score.py estimated from each model's rebuilt
     score history, for a score, a universe ('all' or a size quintile) and a hedge specification."""
     b = pd.read_csv(out_dir / 'hedge_betas_rebuilt.csv')
     b = b[(b['score'] == score) & (b['universe'] == universe) & (b['spec'] == spec)]
@@ -165,7 +165,7 @@ if __name__ == '__main__':
     out_dir.mkdir(parents=True, exist_ok=True)
 
     if not (out_dir / 'hedge_betas_rebuilt.csv').exists():
-        raise SystemExit(f'no hedge ratios in {out_dir} - run analysis/score_hedge.py for this run first')
+        raise SystemExit(f'no hedge ratios in {out_dir} - run analysis/hedge_score.py for this run first')
     p = build_positions(None, UNIVERSE, VARIANT)
     factors = p['factors']
     # extra hedge factors the saved factor set excludes (factor_chars drops size): size and market beta
@@ -198,10 +198,10 @@ if __name__ == '__main__':
         print(table[['Sharpe', 'ann. return %', 'alpha ann. %', 'alpha t (NW)', 'factor R2',
                      'one-way turnover %/mo', 'break-even cost bps', 'Sharpe after 10bps']].round(2).to_string())
         check = out_dir / 'hedged_score_nodes_by_period.csv'
-        if score == SCORES[0] and check.exists():            # the same series from score_hedge.py, for verification
+        if score == SCORES[0] and check.exists():            # the same series from hedge_score.py, for verification
             old = pd.read_csv(check).set_index(['portfolio', 'period'])
             old = old.loc['size_oriented_score long/short, hedged on rebuilt history']
-            print('\nCheck vs score_hedge.py (same series)')
+            print('\nCheck vs hedge_score.py (same series)')
             print(old[['Sharpe', 'alpha t (NW)', 'factor R2']].round(2).to_string())
 
         # ---------------- 2. spanning: does the hedged score improve the factor tangency? ----------------

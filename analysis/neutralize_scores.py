@@ -1,8 +1,9 @@
 # %%
 """
-Factor-neutral stock score. Each month the tree score (size_oriented_norm) is regressed across the scored stocks on
-the characteristics behind the factor portfolios (each rank-normalised like the factors); the residual - the part
-of the score those characteristics do not explain - is rank-normalised again: size_oriented_neutral.
+Factor-neutral stock score. Each month the tree score (size_oriented_score) is regressed across the scored stocks on
+the factor scores - the characteristics behind the factor portfolios, each rank-normalised like the factors - and the
+residual, the part of the score they do not explain, is rank-normalised: size_oriented_resid_norm. This is
+src.score_hedging.neutral_scores, the same function backtest.py uses for the columns of the same names.
 
 The raw and neutral scores are then compared: score-weighted long/short return, Sharpe ratio, alpha and R2 against
 the factor returns, rank IC, turnover and trading costs (overall and by period), and the transfer coefficient and
@@ -11,7 +12,7 @@ information ratio in a long-only portfolio against the cap-weighted benchmark (3
 Run backtest_report.py for the run first (it saves the factor returns), then from the project root:
     python analysis/neutralize_scores.py [<universe>] [--region GL] [--vw | --variant TAGS]      e.g. python analysis/neutralize_scores.py largecap
 Saves the neutral score to result/[<region>_]score_neutral[_<universe>][_<variant>].csv (date, permno,
-size_oriented_neutral), e.g. result/score_neutral_largecap_slow3_val.csv, and the
+size_oriented_resid, size_oriented_resid_norm), e.g. result/score_neutral_largecap_slow3_val.csv, and the
 comparison to the run's report folder (neutral_score_by_period.csv, neutral_score_summary.csv).
 """
 import sys
@@ -22,31 +23,17 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))   # project root, f
 import numpy as np
 import pandas as pd
 
-from src.functions import rank_normalise
-
 from analysis.backtest_report import (FEATURES, REGION, UNIVERSE, VARIANT, LABEL, RET_NAME, COSTS_BPS, make_periods, by_period,
                                       long_short, rank_ic, traded)
 from analysis.transfer_coefficient import grid, long_only
 from src.constants import DataPaths
 from src.preprocessing import read_backtest_data
+from src.score_hedging import factor_scores, neutral_scores
 
-SCORE = 'size_oriented_norm'
-NEUTRAL = 'size_oriented_neutral'
+SCORE = 'size_oriented_score'          # regressed on the factor scores
+RAW = 'size_oriented_norm'             # the score before neutralising, for the comparison (same ranks as SCORE)
+NEUTRAL = 'size_oriented_resid_norm'
 ACTIVE_SHARE = 0.30
-
-
-def normalise(x):
-    return pd.Series(np.asarray(rank_normalise(x, cutoff_std=3.5), dtype=float), index=x.index)
-
-
-def neutralise(panel, score, exposures):
-    """Residual of score on [1, exposures] within each date."""
-    def resid(g):
-        X = np.column_stack([np.ones(len(g)), g[exposures].to_numpy()])
-        y = g[score].to_numpy()
-        beta = np.linalg.lstsq(X, y, rcond=None)[0]
-        return pd.Series(y - X @ beta, index=g.index)
-    return panel.groupby('date', group_keys=False).apply(resid)
 
 
 def long_only_stats(score, data, dates):
@@ -75,23 +62,26 @@ if __name__ == '__main__':
     report_dir = paths.result_file('report', REGION, UNIVERSE, VARIANT, ext=None)
     features = FEATURES
 
-    scores = pd.read_csv(paths.result_file('score', REGION, UNIVERSE, VARIANT), usecols=['date', 'permno', SCORE])
-    scores = scores.set_index(['date', 'permno'])[SCORE]
+    scores = pd.read_csv(paths.result_file('score', REGION, UNIVERSE, VARIANT), usecols=['date', 'permno', SCORE, RAW])
+    scores = scores.dropna(subset=[SCORE]).set_index(['date', 'permno'])
     data = read_backtest_data(features, RET_NAME, region=REGION, universe=UNIVERSE).swaplevel(0, 1).sort_index()
     data = data[data.index.get_level_values('date') >= scores.index.get_level_values('date').min()]
+    chars_by_date = {d: g.droplevel('date')[features] for d, g in data.groupby(level='date')}
 
-    # ---- 1. neutralise ----
-    panel = scores.to_frame().join(data[features], how='inner')
-    exposures = [f'x_{f}' for f in features]
-    for f, x in zip(features, exposures):
-        panel[x] = panel[f].groupby('date').transform(normalise).fillna(0)
-    panel['resid'] = neutralise(panel, SCORE, exposures)
-    panel[NEUTRAL] = panel['resid'].groupby('date').transform(normalise)
-    corr = panel.groupby('date').apply(lambda g: g[exposures].corrwith(g['resid']).abs().max()).max()
-    raw_vs_neutral = panel.groupby('date').apply(lambda g: g[SCORE].corr(g[NEUTRAL])).mean()
-    print(f'Check: residual vs characteristics, max |corr| {corr:.1e}; raw vs neutral score, mean corr {raw_vs_neutral:.2f}')
+    # ---- 1. neutralise, month by month ----
+    resid, worst = {}, 0.0
+    for d, s in scores[SCORE].groupby(level='date'):
+        if d not in chars_by_date:
+            continue
+        s = s.droplevel('date')
+        resid[d] = neutral_scores(s, chars_by_date[d])
+        exposures, _ = factor_scores(chars_by_date[d])
+        worst = max(worst, exposures.reindex(s.index).fillna(0).corrwith(resid[d]['size_oriented_resid']).abs().max())
+    panel = scores.join(pd.concat(resid, names=['date', 'permno']), how='inner')
+    raw_vs_neutral = panel.groupby('date').apply(lambda g: g[RAW].corr(g[NEUTRAL])).mean()
+    print(f'Check: residual vs factor scores, max |corr| {worst:.1e}; raw vs neutral score, mean corr {raw_vs_neutral:.2f}')
     out_file = paths.result_file('score_neutral', REGION, UNIVERSE, VARIANT)
-    panel[[NEUTRAL]].reset_index().to_csv(out_file, index=False)
+    panel[['size_oriented_resid', NEUTRAL]].reset_index().to_csv(out_file, index=False)
 
     # ---- 2. compare raw and neutral ----
     factors = pd.read_csv(report_dir / 'factor_returns.csv', index_col=0)
@@ -99,7 +89,7 @@ if __name__ == '__main__':
     dates = panel.index.get_level_values('date').unique().sort_values()
     periods = make_periods(list(dates))
     tables, summary = {}, {}
-    for name, col in [('raw', SCORE), ('neutral', NEUTRAL)]:
+    for name, col in [('raw', RAW), ('neutral', NEUTRAL)]:
         s = panel[col]
         ls = long_short(s, ret)
         ic = rank_ic(s, ret)

@@ -12,10 +12,11 @@ from scipy.stats import norm
 
 from prune_trees import prune, to_pandas, factor_betas, residualize_portfolios
 from build_trees import prepare_data
-from src.tree_scores import calc_sharpe, get_stocks_in_node, compute_node_scores
-from src.constants import DataPaths, Parameters, Columns, Years, TREE_SETUPS, PRUNE_SETUPS, run_variant, factor_chars
-from src.functions import calc_fac_ret, rank_normalise
+from src.tree_scores import MIN_NODE_SIZE, calc_sharpe, score_stocks    # noqa: F401 (MIN_NODE_SIZE: make_deck.py)
+from src.constants import DataPaths, Columns, Years, TREE_SETUPS, PRUNE_SETUPS, run_variant, factor_chars
+from src.functions import calc_fac_ret
 from src.preprocessing import read_backtest_data
+from src.score_hedging import HEDGE_MIN, HEDGE_WINDOW, hedge_ratios, neutral_scores, rebuilt_history
 from src.utils import build_comb
 
 
@@ -32,8 +33,6 @@ def r_squared(X, y):
     res = sm.OLS(y, X).fit()
     return res.rsquared_adj
 
-# tree_portfolio's min_node_size (src/utils.py): smaller nodes get no portfolio return
-MIN_NODE_SIZE = 50
 
 def _select_portfolios(train_val_portfolio, prune_kwargs=None):
     """Prune one tree and return the column positions of its selected portfolios."""
@@ -49,103 +48,19 @@ def _market_adjusted_returns(trees, d, columns):
     ret = pd.concat([tree["df"].iloc[slice(*tree["date_bounds"][d])] for tree in trees], axis=1)
     return ret.loc[:, ~ret.columns.duplicated()].reindex(columns=columns, fill_value=0)
 
-def score_stocks(comb_d, node_betas, combo_wei=None):
-    """
-    Stock scores on one date from the nodes held by the SDF (node_betas) and, if given, by the
-    original score (combo_wei); both are Series indexed by (tree_key, port_col, node_id).
 
-    final_score/norm_score: original score, node weight x geometric mean of market-wide characteristic ranks.
-    sdf_weight: the stock's weight in the SDF, sum over nodes of beta x the stock's weight in the node.
-    size_oriented_score: the same node weights beta, spread inside each node in proportion to
-        (weight in node x oriented_score), so each node still totals beta but the stocks sitting most
-        firmly inside it (by characteristic ranks inside the parent node) get more of it.
-    size_oriented_norm: size_oriented_score rank-normalised like the factor scores (see _normalise_scores).
 
-    Every stock of the date's universe (comb_d) is returned; sdf_weight and size_oriented_score are 0 for
-    stocks in no held node, final_score/norm_score are null for stocks the original score does not cover.
-    """
-    combo_wei = pd.Series(dtype=float) if combo_wei is None else combo_wei
-    node_keys = list(dict.fromkeys(
-        [k for k, w in combo_wei.items() if w != 0] + [k for k, b in node_betas.items() if b != 0]
-    ))
+SCORE = 'size_oriented_score'      # the score the residual and hedged versions are made of
 
-    dfs = []
-    # tree splits are computed within each date, so growing the tree on one date alone gives the same nodes
-    for tree_key, port_col, node_id in node_keys:
-        key = (tree_key, port_col, node_id)
 
-        df_node = get_stocks_in_node(
-            comb_d,
-            tree_key,
-            port_col,
-            int(node_id),
-            Parameters.n_splits
-        )
+def _with_neutral_scores(final_df, chars, h):
+    """final_df (one date's stock scores) with the residual and, given hedge ratios h, the hedged score added
+    (src.score_hedging.neutral_scores); stocks only in the factor portfolios join with the other scores empty."""
+    s = final_df.select(Columns.id_col, SCORE).to_pandas().set_index(Columns.id_col)[SCORE].dropna()
+    extra = neutral_scores(s, chars, h).rename_axis(Columns.id_col).reset_index()
+    extra = pl.from_pandas(extra).with_columns(pl.col(Columns.id_col).cast(final_df.schema[Columns.id_col]))
+    return final_df.join(extra, on=Columns.id_col, how='full', coalesce=True)
 
-        if df_node.is_empty():
-            continue
-
-        df_scores = compute_node_scores(
-            df_node=df_node,
-            tree_key=tree_key,
-            port_col=port_col,
-            node_id=int(node_id),
-            n_split=Parameters.n_splits,
-        )
-
-        w = combo_wei.get(key, 0.0)
-        # the node's tree portfolio has no return below MIN_NODE_SIZE stocks, so the SDF holds nothing there
-        b_held = node_betas.get(key, 0.0) if df_node.height >= MIN_NODE_SIZE else 0.0
-        in_node = pl.col(Columns.size_col) / pl.col(Columns.size_col).sum()
-        tilted = in_node * pl.col("oriented_score")
-
-        dfs.append(
-            df_scores.select(
-                Columns.id_col,
-                pl.lit(w != 0).alias("in_old_score"),
-                (pl.col("factor_score") * w).alias("weighted_score"),
-                (in_node * b_held).alias("sdf_weight"),
-                (tilted / tilted.sum() * b_held).alias("size_oriented_score"),
-            )
-        )
-
-    final_df = comb_d.select(Columns.id_col)
-    if not dfs:
-        return _normalise_scores(final_df.with_columns(
-            pl.lit(None, pl.Float64).alias("final_score"), pl.lit(None, pl.Float64).alias("norm_score"),
-            pl.lit(0.0).alias("sdf_weight"), pl.lit(0.0).alias("size_oriented_score"),
-        ))
-
-    node_rows = pl.concat(dfs)
-    scores = node_rows.group_by(Columns.id_col).agg(pl.col("sdf_weight").sum(), pl.col("size_oriented_score").sum())
-
-    old = (
-        node_rows
-        .filter(pl.col("in_old_score"))
-        .group_by(Columns.id_col)
-        .agg(
-            pl.col("weighted_score").sum().alias("final_score")
-        )
-    )
-    n = old.height
-    u = ((old["final_score"].rank("min") - 0.5) / n).to_numpy()
-    old = old.with_columns(pl.Series("norm_score", norm.ppf(u), dtype=pl.Float64))
-
-    final_df = (
-        final_df
-        .join(old, on=Columns.id_col, how="left")
-        .join(scores, on=Columns.id_col, how="left")
-        .with_columns(pl.col("sdf_weight").fill_null(0.0), pl.col("size_oriented_score").fill_null(0.0))
-    )
-    return _normalise_scores(final_df)
-
-def _normalise_scores(scores):
-    """
-    size_oriented_norm: size_oriented_score across the whole universe (0 = not held, i.e. neutral),
-    rank-normalised with the same rank_normalise(cutoff_std=3.5) as the factor scores.
-    """
-    z = rank_normalise(scores["size_oriented_score"].to_pandas(), cutoff_std=3.5)
-    return scores.with_columns(pl.Series("size_oriented_norm", np.asarray(z, dtype=float)))
 
 def _refit_period(d, refit_freq):
     """Period that date d (YYYYMMDD int) falls in; the models are refitted whenever it changes."""
@@ -158,7 +73,7 @@ def _refit_period(d, refit_freq):
 
 
 def run_backtest(region=None, universe=None, ret_name='gross_returns', start_year=None, refit_freq='Y',
-                 equal_weighted=True, tree_tag=None, prune_tag=None):
+                 equal_weighted=True, tree_tag=None, prune_tag=None, neutral=True):
     """
     Run the tree backtest for a region of the company data (e.g. 'GL') or a universe of the characteristic files
     (e.g. 'largecap'); saves scores/returns to paths.output and returns (rets, stk_score).
@@ -172,10 +87,17 @@ def run_backtest(region=None, universe=None, ret_name='gross_returns', start_yea
     reproduces 'Return_mkt_adj'), 'size_oriented_score' (SDF node weights tilted towards the stocks most
     firmly inside each node) and 'size_oriented_norm' (size_oriented_score rank-normalised to combine
     with factor scores).
+    With neutral=True it also has the score with the existing factors taken out (src/score_hedging.py):
+    'size_oriented_resid' - the residual of a cross-sectional regression of size_oriented_score on the factor scores
+    (each factor characteristic rank-normalised that month) - and 'size_oriented_hedged' - the score's long/short
+    positions minus their factor exposure, with hedge ratios estimated at each refit from the model's score rebuilt
+    over the previous HEDGE_WINDOW months - each with a rank-normalised version ('..._norm'). The hedged positions
+    include the factor portfolios' stocks, so a date's rows are the scored stocks plus those; the hedge ratios of every
+    refit are saved as the 'score_hedge_ratios' result file.
 
     The SDF node weights (beta) of every refit are saved as the 'node_betas' result file (DataPaths.result_file), and
     the node weights the original score uses (from calc_sharpe) as the 'combo_weights' result file, so that the scores
-    can be recomputed for any month with a refit's model (analysis/score_hedge.py).
+    can be recomputed for any month with a refit's model (analysis/hedge_score.py).
 
     equal_weighted: equal- or value-weighted market adjustment and node weights. Like the tree files, the outputs of
     a value-weighted run end in '_vw' (e.g. result/ret_largecap_vw.csv) and it reads the '_vw' trees
@@ -260,6 +182,16 @@ def run_backtest(region=None, universe=None, ret_name='gross_returns', start_yea
         for k, v in comb_pl.partition_by(Columns.date_col, as_dict=True).items()
     }
 
+    # stock data by date: the factor characteristics for the residual and hedged scores, the returns for the
+    # rebuilt score histories the hedge ratios come from
+    if neutral:
+        data_by_date = {dt: g.droplevel('date') for dt, g in data.swaplevel(0, 1).sort_index().groupby(level='date')}
+        ret_by_date = {dt: g[ret_name] for dt, g in data_by_date.items()}
+        for series in ret_by_date.values():                   # build the index lookups once
+            assert series.index.is_unique
+        score_dates = sorted(comb_by_date)
+    hedge, refit_hedge = None, []
+
     # one worker pool reused across dates; each worker runs its grid search single-threaded
     parallel = Parallel(n_jobs=-1)
     fitted_period = None
@@ -316,6 +248,14 @@ def run_backtest(region=None, universe=None, ret_name='gross_returns', start_yea
                 .loc[lambda x: x != 0].reset_index().assign(refit_date=d)
             )
             refit_combo.append(final_combo_wei.rename('weight').loc[lambda x: x != 0].reset_index().assign(refit_date=d))
+            if neutral:
+                # hedge ratios of the score this model gives, from its rebuilt history over the months before d
+                months = [m for m in score_dates if m < d][-HEDGE_WINDOW:]
+                refit_nodes = pd.Series(final_model.betas[final_best_model], index=final_model.feature_weights.index)
+                history = rebuilt_history(comb_by_date, ret_by_date, refit_nodes, None, months, [SCORE])
+                hedge = hedge_ratios(history[(SCORE, 'all')], factor_returns, HEDGE_MIN) if len(history) else None
+                if hedge is not None:
+                    refit_hedge.append(hedge.rename(d))
         else:
             # reuse the last fit: take this date's returns of the portfolios the final model was fitted on
             test_portfolios = pd.concat(
@@ -329,6 +269,8 @@ def run_backtest(region=None, universe=None, ret_name='gross_returns', start_yea
         node_betas = pd.Series(final_model.betas[final_best_model], index=final_model.feature_weights.index)
         comb_d = comb_by_date.get(d)
         final_df = score_stocks(comb_d, node_betas, final_combo_wei) if comb_d is not None else pl.DataFrame()
+        if neutral and comb_d is not None and d in data_by_date:
+            final_df = _with_neutral_scores(final_df, data_by_date[d][features], hedge)
 
         final_df = final_df.with_columns(
             pl.lit(d).alias(Columns.date_col)
@@ -342,10 +284,13 @@ def run_backtest(region=None, universe=None, ret_name='gross_returns', start_yea
 
 
 
-    stk_score = pl.concat(stock_scores)
+    stk_score = pl.concat(stock_scores, how='diagonal_relaxed')      # dates before the first hedge lack its columns
     stk_score.write_csv(paths.result_file('score', region, universe, variant))
     pd.concat(refit_betas).to_csv(paths.result_file('node_betas', region, universe, variant), index=False)
     pd.concat(refit_combo).to_csv(paths.result_file('combo_weights', region, universe, variant), index=False)
+    if refit_hedge:
+        pd.DataFrame(refit_hedge).rename_axis('refit_date').to_csv(
+            paths.result_file('score_hedge_ratios', region, universe, variant))
 
     rets = rets.dropna()
     rets.cumsum().plot()

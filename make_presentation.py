@@ -7,8 +7,8 @@ For each run in RUNS whose backtest results exist (e.g. result/ret_largecap.csv 
 backtest.py):
     1. analysis/backtest_report.py      performance tables and factor returns   -> e.g. result/report_largecap/
     2. analysis/hedge_analysis.py       factor-hedged portfolio after costs
-    3. analysis/neutralize_scores.py    the score made neutral to the factor characteristics
-    4. analysis/score_hedge.py          hedge ratios for the scores from each model's rebuilt history (slow)
+    3. analysis/neutralize_scores.py    the score made neutral to the factor scores (size_oriented_resid_norm)
+    4. analysis/hedge_score.py          hedge ratios for the scores from each model's rebuilt history (slow)
     5. analysis/factor_spanning.py      the factor-hedged scores: spanning, by period, horizon, size and beta, by size
     6. analysis/turnover_controls.py    partial rebalancing and signal averaging, hedged SDF and hedged score
 then presentation/make_comparison.py puts all runs side by side.
@@ -62,7 +62,7 @@ STEPS = [   # script, file in the report folder it writes last
     ('analysis/backtest_report.py', 'sdf_returns_by_period.csv'),
     ('analysis/hedge_analysis.py', 'hedged_score_by_period.csv'),
     ('analysis/neutralize_scores.py', 'neutral_score_summary.csv'),
-    ('analysis/score_hedge.py', 'hedge_betas_rebuilt_fit.csv'),      # hedge ratios the next steps use
+    ('analysis/hedge_score.py', 'hedge_betas_rebuilt_fit.csv'),      # hedge ratios the next steps use
     ('analysis/factor_spanning.py', 'signal_hedged_by_size.csv'),
     ('analysis/turnover_controls.py', 'turnover_controls_score_summary.csv'),
 ]
