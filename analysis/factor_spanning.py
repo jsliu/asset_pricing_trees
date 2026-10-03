@@ -82,9 +82,12 @@ def jobson_korkie(r1, r2):
 
 
 def span_periods(dates):
-    """Full sample, and the two halves either side of 2000 (the tangency weights are in-sample either way)."""
-    return {'Full': (min(dates), max(dates)), 'pre-2000': (min(dates), 19991231),
-            '2000-2016': (20000101, max(dates))}
+    """Full sample and its two halves, split at the start of the year nearest the middle of the data, e.g.
+    1980-1997 / 1998-2016 or 2006-2015 / 2016-2026 (the tangency weights are in-sample either way)."""
+    y0, y1 = min(dates) // 10000, max(dates) // 10000
+    mid = (y0 + y1 + 1) // 2
+    return {'Full': (min(dates), max(dates)), f'{y0}-{mid - 1}': (min(dates), (mid - 1) * 10000 + 1231),
+            f'{mid}-{y1}': (mid * 10000 + 101, max(dates))}
 
 
 def score_decay_table(score, w, ret, horizons=(1, 3, 6, 12)):

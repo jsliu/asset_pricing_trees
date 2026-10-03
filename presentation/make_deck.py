@@ -387,10 +387,10 @@ def build(d, path, preview_dir=None):
 
         rows = [[short[s_], num(h_['table'].loc['Full', 'Sharpe']), num(h_['table'].loc['Full', 'alpha t (NW)'], '{:.1f}'),
                  num(h_['table'].loc['Full', 'factor R2']), f"{h_['table'].loc['Full', 'one-way turnover %/mo']:.0f}%",
-                 num(h_['table'].loc['Full', 'Sharpe after 10bps']), gain(h_, 'Full'), gain(h_, '2000-2016')]
+                 num(h_['table'].loc['Full', 'Sharpe after 10bps']), gain(h_, 'Full'), gain(h_, h_['spanning'].index[-1])]
                 for s_, h_ in hedged.items()]
         y = table(fig, M, 3.05, W - 2 * M, ["Hedged", "Sharpe", "Alpha t", "Factor R²", "Turnover", "@ 10 bps",
-                                            "Adds to factors (t)", "Adds, 2000–2016 (t)"],
+                                            "Adds to factors (t)", f"Adds, {ds[0]['spanning'].index[-1].replace('-', '–')} (t)"],
                   rows, [0.14, 0.1, 0.1, 0.11, 0.11, 0.1, 0.17, 0.17], size=14, row_h=0.4)
         text(fig, M, y - 0.15, "Each score's long/short minus its factor exposure, hedged like the SDF: betas at each refit from "
              f"the model's own score rebuilt over the previous 10 years (from {min(h_['monthly'].index.min() for h_ in ds) // 10000}). "
@@ -402,7 +402,7 @@ def build(d, path, preview_dir=None):
         # 9c. the hedged scores by period, and after costs
         fig = deck.slide("Hedged scores by period", "Independent of the factors, and after costs")
         msc.plot_hedged_sharpe_by_period_multi(chart(fig, M + 0.2, 2.6, 6.3, 4.2), ds)
-        decades = [p_ for p_ in ['Full', '1980s', '1990s', '2000s', '2010s'] if p_ in ds[0]['table'].index]
+        decades = list(ds[0]['table'].index)          # Full, then the periods make_periods found in the data
         rows = [[p_ if p_ != 'Full' else "Full sample"]
                 + [num(h_['table'].loc[p_, 'Sharpe']) for h_ in ds]
                 + [num(h_['table'].loc[p_, 'Sharpe after 10bps']) for h_ in ds] for p_ in decades]

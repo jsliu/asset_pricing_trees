@@ -84,7 +84,7 @@ def plot_hedged_cumulative(ax, d):
 def plot_spanning_hedged(ax, d):
     """Sharpe ratio of the tangency portfolio of the 9 characteristic factors, alone and with the hedged score added."""
     s = d['spanning']
-    periods = ["Full", "pre-2000", "2000-2016"]
+    periods = list(s.index)                                            # Full, then the two halves
     x = np.arange(len(periods))
     w = 0.36
     base = s.loc[periods, 'factors only SR'].to_numpy(dtype=float)
@@ -99,7 +99,7 @@ def plot_spanning_hedged(ax, d):
                     (j, max(base[j], hedg[j])), xytext=(0, 22), textcoords="offset points",
                     ha="center", va="bottom", fontsize=14, color=INK2)
     ax.set_ylim(0, max(base.max(), hedg.max()) * 1.45)                 # room for the labels and the legend
-    ax.set_xticks(x, ["Full sample", "Pre-2000", "2000-2016"])
+    ax.set_xticks(x, ["Full sample" if p == "Full" else p.replace("-", "–") for p in periods])
     ax.set_ylabel("Sharpe ratio, in-sample tangency")
     ax.grid(axis="x", visible=False)
     ax.legend(loc="upper left")
@@ -135,7 +135,7 @@ def plot_hedged_cumulative_multi(ax, ds):
 
 def plot_spanning_multi(ax, ds):
     """Tangency Sharpe ratio of the factors alone and with each hedged score added, per period."""
-    periods = ["Full", "pre-2000", "2000-2016"]
+    periods = list(ds[0]['spanning'].index)                            # Full, then the two halves
     x = np.arange(len(periods))
     w = 0.8 / (len(ds) + 1)
     base = ds[0]['spanning'].loc[periods, 'factors only SR'].to_numpy(dtype=float)
@@ -149,7 +149,7 @@ def plot_spanning_multi(ax, ds):
             _value_label(ax, rect, v, "{:.2f}", fontsize=13)
         top = max(top, vals.max())
     ax.set_ylim(0, top * 1.45)
-    ax.set_xticks(x, ["Full sample", "Pre-2000", "2000-2016"])
+    ax.set_xticks(x, ["Full sample" if p == "Full" else p.replace("-", "–") for p in periods])
     ax.set_ylabel("Sharpe ratio, in-sample tangency")
     ax.grid(axis="x", visible=False)
     ax.legend(loc="upper left", fontsize=14, ncol=2)
