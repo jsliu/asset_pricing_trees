@@ -272,6 +272,18 @@ if __name__ == '__main__':
     print('\n==== 3. Score differences ====')
     print(diff_table.round(2).to_string())
 
+    # ---------------- 3b. do the scores capture the SDF? correlation of each score's long/short with the SDF ----------
+    sdf_corr = {}
+    for p_, (a, b) in periods.items():
+        for col in score_cols:
+            ls = ls_all['all stocks'][col]
+            ls = ls[(ls.index >= a) & (ls.index <= b)]
+            sdf_corr[(p_, col)] = {s: ls.corr(rets[s].reindex(ls.index)) for s in ['Return_mkt_adj', 'Return']}
+    sdf_corr = pd.DataFrame(sdf_corr).T.rename_axis(['period', 'score'])
+    sdf_corr.to_csv(out_dir / 'score_sdf_correlation.csv')
+    print('\n==== 3b. Correlation of each score long/short with the market-adjusted and factor-hedged SDF ====')
+    print(sdf_corr.round(2).to_string())
+
     # ---------------- 4. market-cap breakdown ----------------
     print('\n==== 4. Market-cap breakdown ====')
     if 'sdf_weight' in scores:

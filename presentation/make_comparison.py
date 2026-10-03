@@ -67,6 +67,7 @@ def load(region, universe, variant):
         "nsum": opt("neutral_score_summary.csv", ["Unnamed: 0"]),
         "ratios": opt("hedge_ratios_summary.csv", ["Unnamed: 0"]),
         "controls": opt("turnover_controls_summary.csv", ["portfolio", "control"]),
+        "combined": opt("combined_scores_summary.csv", ["Unnamed: 0"]),
     }
 
 
@@ -349,6 +350,29 @@ def build(runs, path, preview_dir=None):
          "nine factor characteristics and the residual is the new score, with no exposure to them and no hedge to trade. "
          "The previous page hedges the score's returns instead.", W - 2 * M - 1.5, size=14)
     deck.save(fig)
+
+    # 12c. the tree scores added to the existing factor scores (backtest_analysis.py)
+    if any(r["d"]["combined"] is not None for r in runs):
+        fig = deck.slide("Adding to the factors", "Each tree score combined with the existing factor scores, by run")
+        comb = lambda r, k, col, fmt="{:.2f}": get(r["d"]["combined"], k, col, fmt)
+        stats = [("EI alone: IR", lambda r: comb(r, "EI alone", "IR, EI + tree score"))]
+        for k in ["Tree", "Resid", "Hedged", "Original"]:
+            stats.append((f"EI + {k}: IR", lambda r, k=k: comb(r, k, "IR, EI + tree score")))
+            stats.append(("  gain over EI (t)", lambda r, k=k: NA if value(r["d"]["combined"], k, "IR gain over EI") is None else
+                          f"{num(value(r['d']['combined'], k, 'IR gain over EI'), '{:+.2f}')} "
+                          f"({value(r['d']['combined'], k, 'gain t-stat'):.1f})"))
+        stats += [("EI alone: IC", lambda r: comb(r, "EI alone", "IC", "{:.3f}")),
+                  ("EI + Hedged: IC", lambda r: comb(r, "Hedged", "IC", "{:.3f}"))]
+        rows = [[name] + [f(r) for r in runs] for name, f in stats]
+        size_, rh = fit_size(["Full sample"] + labels, rows, wide_w, 6.9 - 1.6)
+        y = table(fig, M, 6.9, W - 2 * M, ["Full sample"] + labels, rows, wide_w, size=size_, row_h=rh,
+                  bold=[0, 5, 6])
+        text(fig, M, y - 0.25, "EI: the run's factor scores combined (characteristic files: rank-normalised, oriented, equal "
+             "weights; company data: production weights). EI + score: the tree score added with equal weight "
+             "(company data: 20%). Tree, Resid, Hedged, Original: the score, its residual on the factor scores, its "
+             "factor-hedged positions, the original score, all rank-normalised. Gain: rise in IR over EI, t of the "
+             "monthly difference.", W - 2 * M - 1.0, size=12)
+        deck.save(fig)
 
     # 13. size concentration
     fig = deck.slide("Size concentration", "Contribution to the market-adjusted SDF by size quintile")

@@ -286,19 +286,37 @@ def build(d, path, preview_dir=None):
     deck.save(fig)
 
     # 7. factor exposure
-    lo = d["loadings"].loc["Return_mkt_adj"].drop(columns="const")
+    lo = d["loadings"].loc["Return_mkt_adj"].drop(columns="const")            # market-adjusted SDF
+    lh = d["loadings"].loc["Return"].drop(columns="const")                    # factor-hedged SDF
     sig = [f for f in lo.columns if abs(lo.loc["t", f]) > 2]
-    fig = deck.slide("Factor exposure", "Factor loadings of the market-adjusted SDF return")
-    rows = [[f, num(lo.loc["beta", f]), num(lo.loc["t", f], "{:.1f}")] for f in lo.columns]
-    table(fig, M, 6.9, 6.5, ["Factor", "Beta", "t"], rows, [0.5, 0.25, 0.25], size=15, row_h=0.5,
-          bold=[i for i, f in enumerate(lo.columns) if f in sig])
-    box(fig, 8.4, 6.9, W - M - 8.4, 2.2)
-    fig.text(8.75 / W, 6.55 / H, num(mk["factor R2"]), fontsize=40, family=SERIF, weight="bold", color=NAVY, va="top")
-    text(fig, 8.75, 5.5, f"R² on the {len(lo.columns)} factors: {100 * (1 - mk['factor R2']):.0f}% of the variance is unexplained",
-         W - M - 9.1, size=15)
-    sig_text = (f"Significant at |t| > 2: {', '.join(sig)}." if sig else "No loading is significant at |t| > 2.")
-    text(fig, 8.4, 4.3, sig_text + " Pruning on residual returns keeps the SDF close to factor-neutral without an explicit hedge.",
-         W - M - 8.4, size=16)
+    sig_h = [f for f in lh.columns if abs(lh.loc["t", f]) > 2]
+    fig = deck.slide("Factor exposure", "Factor loadings of the market-adjusted and factor-hedged SDF")
+    rows = [[f, num(lo.loc["beta", f]), num(lo.loc["t", f], "{:.1f}"), num(lh.loc["beta", f]), num(lh.loc["t", f], "{:.1f}")]
+            for f in lo.columns]
+    rows.append(["Factor R²", num(mk["factor R2"]), "", num(hedged["factor R2"]), ""])
+    tw = 8.6
+    widths_lo = [0.28, 0.18, 0.18, 0.18, 0.18]
+    for label_, first in [("Market-adjusted", 1), ("Factor-hedged", 3)]:             # labels over the column groups
+        gx = M + tw * sum(widths_lo[:first])
+        fig.text((gx + 0.12) / W, 7.05 / H, label_, fontsize=14, weight="bold", color=ACCENT, va="bottom")
+        fig.add_artist(Line2D([(gx + 0.1) / W, (gx + tw * sum(widths_lo[first:first + 2]) - 0.1) / W], [7.0 / H, 7.0 / H],
+                              color=ACCENT, linewidth=1))
+    table(fig, M, 6.9, tw, ["Factor", "Beta", "t", "Beta", "t"], rows, widths_lo, size=14, row_h=0.46,
+          bold=[len(rows) - 1])
+    x0 = M + tw + 0.5
+    for i, (value, label_) in enumerate([(mk["factor R2"], "R² of the market-adjusted SDF on the factors"),
+                                         (hedged["factor R2"], "R² of the factor-hedged SDF on the factors")]):
+        top = 6.9 - i * 2.05
+        box(fig, x0, top, W - M - x0, 1.8)
+        fig.text((x0 + 0.3) / W, (top - 0.3) / H, num(value), fontsize=34, family=SERIF, weight="bold",
+                 color=NAVY if i == 0 else ACCENT, va="top")
+        text(fig, x0 + 0.3, top - 1.2, label_, W - M - x0 - 0.6, size=13)
+    sig_text = (f"Market-adjusted: {', '.join(sig)} significant at |t| > 2." if sig else
+                "Market-adjusted: no loading significant at |t| > 2.")
+    sig_text += (f" Hedged: {', '.join(sig_h)} significant" if sig_h else " Hedged: none significant")
+    text(fig, x0, 2.65, sig_text + f", because its hedge ratios come from the training window: the hedge removes most "
+         f"of the exposure out of sample (R² {num(mk['factor R2'])} → {num(hedged['factor R2'])}), not all of it.",
+         W - M - x0, size=13)
     deck.save(fig)
 
     # 8. score definitions
@@ -599,6 +617,50 @@ def build(d, path, preview_dir=None):
                  f"{num(bp.loc[last_p, f'IR|EI + {best}'])} against {num(bp.loc[last_p, 'IR|EI'])} "
                  f"(t of the monthly gain {bp.loc[last_p, f'gain t|{best}']:.1f}).", W - 2 * M - 1.0, size=14, color=TEXT)
             deck.save(fig)
+
+    # 9h. do the scores capture the SDF? (backtest_report.py section 3b; hedged scores from factor_spanning.py)
+    corr_file = DataPaths().result_file("report", REGION, UNIVERSE, VARIANT, ext=None) / "score_sdf_correlation.csv"
+    if corr_file.exists():
+        sc = pd.read_csv(corr_file).set_index(["period", "score"])
+        fig = deck.slide("Scores and the SDF", "Do the scores capture the SDF?")
+        ax = chart(fig, M + 0.2, 2.45, 6.0, 4.1)
+        series = [("Hedged SDF", rets["Return"], NAVY)] + [(f"Hedged {short[s_].lower()}", h_["monthly"], h_["color"])
+                                                           for s_, h_ in hedged.items()]
+        for name_, ser, col in series:                # the SDF and the long/shorts differ in scale: put all at 10% vol
+            cum = (ser * 0.10 / (ser.std() * 12 ** 0.5)).cumsum() * 100
+            cum.index = mc.to_dt(cum.index)
+            ax.plot(cum.index, cum, color=col, linewidth=2.2, label=f"{name_} ({cum.iloc[-1]:.0f}%)")
+        ax.set_ylabel("Cumulative return at 10% vol, %")
+        ax.legend(loc="upper left", fontsize=13)
+        hsdf = rets["Return"]
+
+        def stats(t):                                 # Sharpe, alpha (t), factor R² from a by-period table row
+            return [num(t["Sharpe"]), f"{num(t['alpha ann. %'])} ({t['alpha t (NW)']:.1f})", num(t["factor R2"])]
+
+        rows = [["Hedged SDF"] + stats(sdf.loc[("Return", "Full")]) + ["1.00", "1.00", num(rets["Return_mkt_adj"].corr(hsdf))]]
+        rows += [[f"Hedged {short[s_].lower()}"] + stats(hedged[s_]["table"].loc["Full"])
+                 + [num(hedged[s_]["monthly"].corr(hsdf.reindex(hedged[s_]["monthly"].index))),
+                    num(sc.loc[("Full", s_), "Return_mkt_adj"]), num(sc.loc[("Full", s_), "Return"])]
+                 for s_ in hedged if ("Full", s_) in sc.index]
+        tx, tw = 7.5, W - M - 7.5
+        widths = [0.22, 0.1, 0.17, 0.08, 0.13, 0.17, 0.13]
+        for x0, span, label in [(sum(widths[:4]), widths[4], "Hedged corr."), (sum(widths[:5]), sum(widths[5:]), "Unhedged corr.")]:
+            fig.text((tx + tw * (x0 + span / 2)) / W, 7.05 / H, label, fontsize=12, weight="bold", color=ACCENT,
+                     ha="center", va="bottom")
+        y = table(fig, tx, 6.9, tw, ["", "Sharpe", "Alpha %/yr (t)", "R²", "Hedged SDF",
+                                     "Mkt-adj. SDF", "Hedged SDF"], rows, widths, size=12, row_h=0.5)
+        text(fig, tx, y - 0.25, "Full sample, monthly. Sharpe, alpha (Newey-West t) and factor R² are for the hedged "
+             "series. Hedged corr.: the hedged series against the factor-hedged SDF (Return). Unhedged corr.: the score's own "
+             "long/short (for the SDF row, the market-adjusted SDF) against each SDF. The chart scales every hedged "
+             "series to 10% annual volatility (sum of monthly returns).", tw, size=12, color=MUTED)
+        s0 = scores[0]
+        text(fig, M, 1.85, f"What it shows: the {short[s0].lower()} long/short moves almost one-for-one with the "
+             f"market-adjusted SDF (correlation {num(sc.loc[('Full', s0), 'Return_mkt_adj'])}) but much less with the "
+             f"factor-hedged SDF ({num(sc.loc[('Full', s0), 'Return'])}): the score carries the SDF's factor exposure. "
+             + (f"Hedged the same way, it tracks the hedged SDF more closely "
+                f"({num(hedged[s0]['monthly'].corr(hsdf.reindex(hedged[s0]['monthly'].index)))})."
+                if s0 in hedged else ""), W - 2 * M, size=14, color=TEXT)
+        deck.save(fig)
 
     # 10. scores by period
     def tilt(p):

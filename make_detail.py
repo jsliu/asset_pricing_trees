@@ -8,8 +8,7 @@ A model is any backtest with results in result/, named in one of three ways:
     its file-name label             largecap, largecap_val, largecap_slow3_val, full, largecap001, GL, GL_vw
     [REGION@][UNIVERSE][:variant]   largecap:val, full, GL@, GL@:vw   (as make_comparison.py --runs takes it)
     a run in make_presentation.RUNS by its label
-Before the deck, the analysis steps the deck reads (DETAIL_STEPS: make_presentation.STEPS and
-analysis/backtest_analysis.py, the tree scores combined with the factor scores) are run for the model: all of them, only
+Before the deck, the analysis steps the deck reads (DETAIL_STEPS, i.e. make_presentation.STEPS) are run for the model: all of them, only
 the missing ones (--skip-existing), or none (--deck-only).
 
 Run from the project root:
@@ -46,7 +45,7 @@ from make_presentation import RUNS, ROOT, STEPS, run_analyses, run_args, run_nam
 from src.constants import DataPaths, parse_variant
 
 # the comparison's analysis steps, then the tree scores combined with the factor scores (its own slide)
-DETAIL_STEPS = STEPS + [('analysis/backtest_analysis.py', 'combined_scores_pnl.csv', ['--no-plots'])]
+DETAIL_STEPS = STEPS                  # the same steps as the comparison (backtest_analysis.py included)
 UNIVERSES = ['largecap001', 'largecap', 'full']       # characteristic-file universes, longest name first
 
 

@@ -11,6 +11,7 @@ backtest.py):
     4. analysis/hedge_score.py          hedge ratios for the scores from each model's rebuilt history (slow)
     5. analysis/factor_spanning.py      the factor-hedged scores: spanning, by period, horizon, size and beta, by size
     6. analysis/turnover_controls.py    partial rebalancing and signal averaging, hedged SDF and hedged score
+    7. analysis/backtest_analysis.py    each tree score combined with the existing factor scores
 then presentation/make_comparison.py puts all runs side by side.
 
 Run from the project root:
@@ -66,6 +67,7 @@ STEPS = [   # script, file in the report folder it writes last
     ('analysis/hedge_score.py', 'hedge_betas_rebuilt_fit.csv'),      # hedge ratios the next steps use
     ('analysis/factor_spanning.py', 'signal_hedged_by_size.csv'),
     ('analysis/turnover_controls.py', 'turnover_controls_score_summary.csv'),
+    ('analysis/backtest_analysis.py', 'combined_scores_pnl.csv', ['--no-plots']),   # tree scores added to the factors
 ]
 
 
