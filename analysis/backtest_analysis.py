@@ -129,7 +129,7 @@ def tree_score_panel(data):
         h = None
         if hedge_file.exists():
             h = pd.read_csv(hedge_file).query(
-                "score == 'size_oriented_score' and universe == 'all' and spec == '9 factors'").pivot(
+                "score == 'size_oriented_score' and universe == 'all' and spec == 'factors'").pivot(
                 index='refit', columns='factor', values='beta')
         print(f'{missing} not in the score file: computed from size_oriented_score'
               + ('' if h is not None else f' (no {hedge_file.name}: the hedged score is left out)'))

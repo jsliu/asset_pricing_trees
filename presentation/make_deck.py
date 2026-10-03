@@ -152,6 +152,7 @@ def build(d, path, preview_dir=None):
     rets, sdf, perf, costs, diffs = d["rets"], d["sdf_table"], d["perf"], d["costs"], d["diffs"]
     buckets = d["buckets"]
     y0, y1 = rets.index.min() // 10000, rets.index.max() // 10000
+    n_fac = len(d["loadings"].columns) - 1          # the run's factors: the loadings' columns less the constant
     periods = [p for p in sdf.loc["Return_mkt_adj"].index if p != "Full"]
     mk = sdf.loc[("Return_mkt_adj", "Full")]
     hedged = sdf.loc[("Return", "Full")]
@@ -508,10 +509,10 @@ def build(d, path, preview_dir=None):
         with_decomp = [h_ for h_ in ds if h_['decomp'] is not None]
         if with_decomp:
             fig = deck.slide("Size and beta", "Adding size and beta to the hedge leaves the alpha")
-            msc.plot_hedge_decomposition_multi(chart(fig, M + 0.2, 2.75, 6.4, 3.75), with_decomp)
+            msc.plot_hedge_decomposition_multi(chart(fig, M + 0.2, 2.75, 6.4, 3.75), with_decomp, n_fac)
             d0 = with_decomp[0]                                # the score (blue), for the table and the text
-            specs = [sp for sp in ['9 factors', '9 + size', '9 + size + beta'] if sp in d0['decomp'].index]
-            rows = [[sp, num(d0['decomp'].loc[sp, 'Sharpe']), num(d0['decomp'].loc[sp, 'alpha t (NW)'], '{:.1f}'),
+            specs = [sp for sp in ['factors', '+ size', '+ size + beta'] if sp in d0['decomp'].index]
+            rows = [[f"{n_fac} factors" if sp == 'factors' else sp, num(d0['decomp'].loc[sp, 'Sharpe']), num(d0['decomp'].loc[sp, 'alpha t (NW)'], '{:.1f}'),
                      num(d0['decomp'].loc[sp, 'factor R2']),
                      f"{d0['decomp'].loc[sp, 'size beta']:+.2f} ({d0['decomp'].loc[sp, 'size beta t']:.1f})"]
                     for sp in specs]
@@ -519,15 +520,15 @@ def build(d, path, preview_dir=None):
             y = table(fig, tx, 6.9, tw, [f"{d0['label']}, hedged on", "Sharpe", "Alpha t", "R²", "Size loading (t)"], rows,
                       [0.3, 0.15, 0.15, 0.13, 0.27], size=14, row_h=0.5)
             text(fig, tx, y - 0.25, ("How it is tested: two factors are added to the hedge, size (long small, short large "
-                 "stocks) and market beta (long high-beta, short low-beta)" if '9 + size + beta' in d0['decomp'].index else
+                 "stocks) and market beta (long high-beta, short low-beta)" if '+ size + beta' in d0['decomp'].index else
                  "How it is tested: a size factor (long small, short large stocks) is added to the hedge; the data has no "
-                 "market beta to add") + ", built like the nine, with betas from the same rebuilt score histories. "
+                 "market beta to add") + f", built like the {n_fac}, with betas from the same rebuilt score histories. "
                  "Size loading: the hedged score regressed on the size factor.", tw, size=12, color=MUTED)
-            has_beta = '9 + size + beta' in d0['decomp'].index         # company data has no market beta
-            last = '9 + size + beta' if has_beta else '9 + size'
-            a, b, c = (d0['decomp'].loc[sp] for sp in ['9 factors', '9 + size', last])
+            has_beta = '+ size + beta' in d0['decomp'].index         # company data has no market beta
+            last = '+ size + beta' if has_beta else '+ size'
+            a, b, c = (d0['decomp'].loc[sp] for sp in ['factors', '+ size', last])
             others = [h_ for h_ in with_decomp[1:] if last in h_['decomp'].index]
-            other_txt = "; ".join(f"{h_['label'].lower()} {num(h_['decomp'].loc['9 factors', 'Sharpe'])} → "
+            other_txt = "; ".join(f"{h_['label'].lower()} {num(h_['decomp'].loc['factors', 'Sharpe'])} → "
                                   f"{num(h_['decomp'].loc[last, 'Sharpe'])}" for h_ in others)
             text(fig, M, 1.95, f"What it shows: hedging size as well moves the {d0['label'].lower()}'s Sharpe ratio from "
                  f"{num(a['Sharpe'])} to {num(b['Sharpe'])}"
@@ -701,9 +702,9 @@ def build(d, path, preview_dir=None):
              f"{num(sh_in.iloc[0])} in the smallest and {num(sh_in.iloc[-1])} in the largest", 12.5, size=26, color=BG,
              family=SERIF)
         if dec is not None:
-            text(fig, M, 2.75, f"Its loading on a size factor is {dec.loc['9 factors', 'size beta']:+.2f} "
-                 f"(t {dec.loc['9 factors', 'size beta t']:.1f}), and hedging size as well leaves a Sharpe ratio of "
-                 f"{num(dec.loc['9 + size', 'Sharpe'])}: the alpha is not a size bet.", 13.5, size=17, color=ON_DARK)
+            text(fig, M, 2.75, f"Its loading on a size factor is {dec.loc['factors', 'size beta']:+.2f} "
+                 f"(t {dec.loc['factors', 'size beta t']:.1f}), and hedging size as well leaves a Sharpe ratio of "
+                 f"{num(dec.loc['+ size', 'Sharpe'])}: the alpha is not a size bet.", 13.5, size=17, color=ON_DARK)
         text(fig, M, 1.75, f"By contrast, {small_share:.0f}% of the market-adjusted SDF's return comes from the "
              f"{small_label} of stocks by market cap.", 13.5, size=14, color="#9fb0c6")
     else:
@@ -727,7 +728,7 @@ def build(d, path, preview_dir=None):
                                     by_size['Sharpe within'].to_numpy(dtype=float))
         n_earn = int((by_size['Sharpe within'] > 0).sum())
         text(fig, M, 1.85, f"Right: the score's long/short built only from each quintile's stocks. Unhedged its Sharpe ratio "
-             f"goes from {num(raw_within[0])} in the smallest to {num(raw_within[-1])} in the largest; hedged on the nine "
+             f"goes from {num(raw_within[0])} in the smallest to {num(raw_within[-1])} in the largest; hedged on the {n_fac} "
              f"factors it earns in {'all five' if n_earn == len(labels) else f'{n_earn} of {len(labels)}'} (Sharpe "
              f"{num(by_size['Sharpe within'].iloc[0])} to {num(by_size['Sharpe within'].iloc[-1])}, alpha t "
              f"{by_size['alpha t within'].min():.1f} to {by_size['alpha t within'].max():.1f}), so the alpha is not a "
@@ -758,7 +759,7 @@ def build(d, path, preview_dir=None):
         y = table(fig, M, 6.9, W - 2 * M, ["Stocks used", "Stocks/mo", "Sharpe", "Alpha t", "Turnover", "Break-even",
                                            "@ 10 bps", "Unhedged @ 10 bps"],
                   rows, [0.16, 0.11, 0.1, 0.1, 0.11, 0.13, 0.11, 0.18], size=15, row_h=0.5, bold=(0,))
-        text(fig, M, y - 0.3, "Each row builds the score's long/short from those stocks only and hedges it on the nine factors "
+        text(fig, M, y - 0.3, f"Each row builds the score's long/short from those stocks only and hedges it on the {n_fac} factors "
              "(betas at each refit from the model's score rebuilt over the previous 10 years); turnover and costs include "
              "trading the hedge. Break-even "
              "is the one-way cost per trade that wipes out the return. The last column is the same long/short without the "

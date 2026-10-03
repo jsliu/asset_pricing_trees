@@ -200,9 +200,9 @@ def plot_score_decay_multi(ax, ds):
     ax.legend(loc="lower left", bbox_to_anchor=(0, 1.01), ncol=3, fontsize=13)   # above the plot
 
 
-def plot_hedge_decomposition_multi(ax, ds):
+def plot_hedge_decomposition_multi(ax, ds, n_factors):
     """Sharpe ratio of each score's hedged long/short as size and market beta are added to the hedge."""
-    specs = [sp for sp in ['9 factors', '9 + size', '9 + size + beta']   # those the run has (company data: no beta)
+    specs = [sp for sp in ['factors', '+ size', '+ size + beta']   # those the run has (company data: no beta)
              if any(d.get('decomp') is not None and sp in d['decomp'].index for d in ds)]
     x = np.arange(len(specs))
     w = 0.8 / max(len(ds), 1)
@@ -216,7 +216,7 @@ def plot_hedge_decomposition_multi(ax, ds):
         for rect, v in zip(bars, vals):
             _value_label(ax, rect, v, "{:.2f}", fontsize=12)
         top = max(top, np.nanmax(vals))
-    ax.set_xticks(x, [{"9 factors": "9 factors", "9 + size": "+ size", "9 + size + beta": "+ size + beta"}[sp] for sp in specs])
+    ax.set_xticks(x, [f"{n_factors} factors" if sp == "factors" else sp for sp in specs])
     ax.set_ylabel("Sharpe ratio, hedged long/short")
     ax.set_ylim(0, top * 1.15)
     ax.grid(axis="x", visible=False)

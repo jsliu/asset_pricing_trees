@@ -140,11 +140,11 @@ def extra_factors(region, universe, variant=None):
     return rets, weights, extra
 
 
-# hedge specifications: name -> the extra factors added to the nine
-HEDGE_SPECS = {'9 factors': [], '9 + size': ['size'], '9 + size + beta': ['size', 'beta']}
+# hedge specifications: name -> the extra factors added to the run's own factors (however many it has)
+HEDGE_SPECS = {'factors': [], '+ size': ['size'], '+ size + beta': ['size', 'beta']}
 
 
-def rebuilt_betas(out_dir, score, universe='all', spec='9 factors'):
+def rebuilt_betas(out_dir, score, universe='all', spec='factors'):
     """Hedge ratios per refit (refit date x factor) that analysis/hedge_score.py estimated from each model's rebuilt
     score history, for a score, a universe ('all' or a size quintile) and a hedge specification."""
     b = pd.read_csv(out_dir / 'hedge_betas_rebuilt.csv')

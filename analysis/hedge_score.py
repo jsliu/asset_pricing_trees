@@ -9,7 +9,7 @@ recomputes the scores (SCORES, backtest.score_stocks) in each of the previous HE
 from that month's stocks and characteristics, takes their score-weighted long/short returns - over all stocks and
 within each market-cap quintile - and regresses them on the factors. Only months before the refit are used.
 
-Hedge ratios are estimated for every score and universe on the nine factors, and for all stocks also with size and
+Hedge ratios are estimated for every score and universe on the run's factors, and for all stocks also with size and
 with size and market beta added (HEDGE_SPECS; size for every run, market beta for the characteristic files). They are saved in long form to
 hedge_betas_rebuilt.csv, which analysis/factor_spanning.py uses for all its hedged-score analyses. The default score's
 hedged long/short is also saved as hedged_score_nodes_by_period.csv.
@@ -41,14 +41,14 @@ SCORES = ['size_oriented_score', 'norm_score', 'sdf_weight']
 
 def refit_betas(refit, node_betas, combo_wei, comb_by_date, ret_by_date, bucket_by_date, factor_sets, dates):
     """Hedge ratios at one refit for every score, universe and specification (long rows), and the fit R2s."""
-    months = [m for m in dates if m < refit and m in factor_sets['9 factors'].index][-HEDGE_WINDOW:]
+    months = [m for m in dates if m < refit and m in factor_sets['factors'].index][-HEDGE_WINDOW:]
     if len(months) < HEDGE_MIN:
         return [], []
     hist = rebuilt_history(comb_by_date, ret_by_date, node_betas, combo_wei, months, SCORES, bucket_by_date)
     rows, fits = [], []
     for (score, universe), y in hist.items():
         for spec, facs in factor_sets.items():
-            if universe != 'all' and spec != '9 factors':
+            if universe != 'all' and spec != 'factors':
                 continue
             both = pd.concat([y.rename('y'), facs], axis=1, join='inner').dropna()
             if len(both) < HEDGE_MIN:
@@ -86,8 +86,8 @@ if __name__ == '__main__':
     for series in list(ret_by_date.values()) + list(bucket_by_date.values()):
         assert series.index.is_unique
 
-    # the factor sets: the nine, and with size and (where the data has it) market beta added
-    factor_sets = {'9 factors': factors}
+    # the factor sets: the run's factors, and with size and (where the data has it) market beta added
+    factor_sets = {'factors': factors}
     extra_rets, _, _ = extra_factors(REGION, UNIVERSE, VARIANT)
     for spec, added in HEDGE_SPECS.items():
         if added and all(a in extra_rets for a in added):
@@ -120,8 +120,8 @@ if __name__ == '__main__':
           'histories on the factors:')
     print(fits.groupby(['score', 'spec'])['R2'].mean().round(2).to_string())
 
-    # the default score hedged on the nine factors with these ratios (the comparison deck's hedged score)
-    h = betas[(betas['score'] == SCORE) & (betas['universe'] == 'all') & (betas['spec'] == '9 factors')]
+    # the default score hedged on the run's factors with these ratios (the comparison deck's hedged score)
+    h = betas[(betas['score'] == SCORE) & (betas['universe'] == 'all') & (betas['spec'] == 'factors')]
     h = h.pivot(index='refit', columns='factor', values='beta')
     p = build_positions(REGION, UNIVERSE, VARIANT)
     w, ls = score_weights(p)

@@ -347,7 +347,7 @@ def build(runs, path, preview_dir=None):
     rows = [[name] + [f(r) for r in runs] for name, f in stats]
     y = table(fig, M, 6.9, W - 2 * M, ["Full sample"] + labels, rows, wide_w, size=15, row_h=0.46, bold=(0, 7))
     text(fig, M, y - 0.3, "The other way to remove the factors: each month the score is regressed across stocks on the "
-         "nine factor characteristics and the residual is the new score, with no exposure to them and no hedge to trade. "
+         "run's factor characteristics and the residual is the new score, with no exposure to them and no hedge to trade. "
          "The previous page hedges the score's returns instead.", W - 2 * M - 1.5, size=14)
     deck.save(fig)
 
