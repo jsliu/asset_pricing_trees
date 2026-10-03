@@ -500,17 +500,21 @@ def build(d, path, preview_dir=None):
             tx, tw = 8.1, W - M - 8.1
             y = table(fig, tx, 6.9, tw, [f"{d0['label']}, hedged on", "Sharpe", "Alpha t", "R²", "Size loading (t)"], rows,
                       [0.3, 0.15, 0.15, 0.13, 0.27], size=14, row_h=0.5)
-            text(fig, tx, y - 0.25, "How it is tested: two factors are added to the hedge, size (long small, short large "
-                 "stocks) and market beta (long high-beta, short low-beta), built like the nine, with betas from the same "
-                 "rebuilt score histories. Size loading: the hedged score regressed on the size factor.", tw,
-                 size=12, color=MUTED)
-            a, b, c = (d0['decomp'].loc[sp] for sp in ['9 factors', '9 + size', '9 + size + beta'])
-            others = [h_ for h_ in with_decomp[1:]]
+            text(fig, tx, y - 0.25, ("How it is tested: two factors are added to the hedge, size (long small, short large "
+                 "stocks) and market beta (long high-beta, short low-beta)" if '9 + size + beta' in d0['decomp'].index else
+                 "How it is tested: a size factor (long small, short large stocks) is added to the hedge; the data has no "
+                 "market beta to add") + ", built like the nine, with betas from the same rebuilt score histories. "
+                 "Size loading: the hedged score regressed on the size factor.", tw, size=12, color=MUTED)
+            has_beta = '9 + size + beta' in d0['decomp'].index         # company data has no market beta
+            last = '9 + size + beta' if has_beta else '9 + size'
+            a, b, c = (d0['decomp'].loc[sp] for sp in ['9 factors', '9 + size', last])
+            others = [h_ for h_ in with_decomp[1:] if last in h_['decomp'].index]
             other_txt = "; ".join(f"{h_['label'].lower()} {num(h_['decomp'].loc['9 factors', 'Sharpe'])} → "
-                                  f"{num(h_['decomp'].loc['9 + size + beta', 'Sharpe'])}" for h_ in others)
+                                  f"{num(h_['decomp'].loc[last, 'Sharpe'])}" for h_ in others)
             text(fig, M, 1.95, f"What it shows: hedging size as well moves the {d0['label'].lower()}'s Sharpe ratio from "
-                 f"{num(a['Sharpe'])} to {num(b['Sharpe'])}, and adding beta to {num(c['Sharpe'])} (alpha t "
-                 f"{a['alpha t (NW)']:.1f} → {c['alpha t (NW)']:.1f}). "
+                 f"{num(a['Sharpe'])} to {num(b['Sharpe'])}"
+                 + (f", and adding beta to {num(c['Sharpe'])}" if has_beta else "")
+                 + f" (alpha t {a['alpha t (NW)']:.1f} → {c['alpha t (NW)']:.1f}). "
                  + (f"Its size loading stays near zero ({c['size beta']:+.2f}, t {c['size beta t']:.1f}): "
                     if abs(c['size beta t']) < 2 else
                     f"Its size loading is small but {'negative' if c['size beta'] < 0 else 'positive'} "
@@ -518,7 +522,8 @@ def build(d, path, preview_dir=None):
                     f"{'large' if c['size beta'] < 0 else 'small'} stocks: ")
                  + "most of the SDF's gross return comes from smaller "
                  "stocks, but the alpha left after hedging is not a small-stock bet. "
-                 + ("Beta takes a little more, so part of the return came with market-beta exposure, but most of it survives"
+                 + ("" if not has_beta else
+                    "Beta takes a little more, so part of the return came with market-beta exposure, but most of it survives"
                     if b['Sharpe'] - c['Sharpe'] > 0.02 else "Adding beta to the hedge changes little")
                  + (f" ({other_txt})." if others else "."), W - 2 * M, size=14, color=TEXT)
             deck.save(fig)

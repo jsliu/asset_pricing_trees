@@ -33,7 +33,7 @@ import numpy as np
 import pandas as pd
 import statsmodels.api as sm
 
-from src.constants import DataPaths
+from src.constants import DataPaths, factor_chars, parse_variant
 from src.functions import _get_weights
 from src.preprocessing import read_backtest_data
 from analysis.backtest_report import make_periods, size_buckets
@@ -125,16 +125,18 @@ def factor_return(s, ret):
     return (df['w'] * df['e']).groupby('date').sum()
 
 
-def extra_factors(universe, variant=None):
+def extra_factors(region, universe, variant=None):
     """The size (small minus big) and market-beta (high minus low) factors the saved factor set leaves out, over the
-    whole sample: (returns with columns size and beta, their stock weights, the (date, permno) data read)."""
-    extra = read_backtest_data(['beta'], 'ret', None, universe).swaplevel(0, 1).sort_index()
-    rets = pd.concat([factor_return(-extra['mkt_cap'], extra['ret']).rename('size'),
-                      factor_return(extra['beta'], extra['ret']).rename('beta')], axis=1)
-    weights = pd.DataFrame({
-        'size': (-extra['mkt_cap']).groupby('date').transform(lambda x: _get_weights(x, score_weighted=True)),
-        'beta': extra['beta'].groupby('date').transform(lambda x: _get_weights(x, score_weighted=True)),
-    })
+    whole sample: (returns with a column per factor, their stock weights, the (date, permno) data read). Size comes
+    from market cap, so every run has it; market beta is a characteristic of the characteristic files, so company
+    data (a region) has size only."""
+    ret_name = 'gross_returns' if universe is None else 'ret'
+    chars = factor_chars(parse_variant(variant)[1]) + ([] if region else ['beta'])
+    extra = read_backtest_data(chars, ret_name, region, universe).swaplevel(0, 1).sort_index()
+    sources = {'size': -extra['mkt_cap'], **({'beta': extra['beta']} if 'beta' in extra else {})}
+    rets = pd.DataFrame({k: factor_return(v, extra[ret_name]) for k, v in sources.items()})
+    weights = pd.DataFrame({k: v.groupby('date').transform(lambda x: _get_weights(x, score_weighted=True))
+                            for k, v in sources.items()})
     return rets, weights, extra
 
 
@@ -155,25 +157,23 @@ if __name__ == '__main__':
     pd.set_option('display.width', 250)
     pd.set_option('display.max_columns', 40)
     REGION, UNIVERSE, VARIANT = _run_args()
-    if REGION is not None:                                   # company-data regions have no characteristic files here
-        print('note: factor_spanning reads the characteristic files; company-data regions are skipped')
-        sys.exit(0)
-    LABEL = DataPaths().label(None, UNIVERSE, VARIANT)
+    LABEL = DataPaths().label(REGION, UNIVERSE, VARIANT)
     paths = DataPaths()
-    out_dir = paths.result_file('report', None, UNIVERSE, VARIANT, ext=None)
+    out_dir = paths.result_file('report', REGION, UNIVERSE, VARIANT, ext=None)
     out_dir.mkdir(parents=True, exist_ok=True)
 
     if not (out_dir / 'hedge_betas_rebuilt.csv').exists():
         raise SystemExit(f'no hedge ratios in {out_dir} - run analysis/hedge_score.py for this run first')
-    p = build_positions(None, UNIVERSE, VARIANT)
+    p = build_positions(REGION, UNIVERSE, VARIANT)
     factors = p['factors']
-    # extra hedge factors the saved factor set excludes (factor_chars drops size): size and market beta
-    extra_rets, fw_extra, extra = extra_factors(UNIVERSE, VARIANT)
+    # extra hedge factors the saved factor set excludes (factor_chars drops size): size and, where the data has it,
+    # market beta; a specification needing a factor the run lacks is left out
+    extra_rets, fw_extra, extra = extra_factors(REGION, UNIVERSE, VARIANT)
     size_f = extra_rets['size']
     fw_extra = fw_extra[fw_extra.index.get_level_values('date') >= p['dates'].min()]
     specs = {spec: (pd.concat([factors, extra_rets[added]], axis=1, join='inner') if added else factors,
                     pd.concat([p['fw'], fw_extra[added]], axis=1) if added else p['fw'])
-             for spec, added in HEDGE_SPECS.items()}
+             for spec, added in HEDGE_SPECS.items() if all(a in extra_rets for a in added)}
     for score in SCORES:
         # ---------------- the hedged score ----------------
         hedge_betas = rebuilt_betas(out_dir, score)              # per refit, from the model's rebuilt score history
@@ -224,7 +224,7 @@ if __name__ == '__main__':
         # ---------------- 4. horizon retention: does the information persist? ----------------
         # the hedged positions (score weights minus the hedge) held for k months, their rank IC with the month-k
         # return; the unhedged score's for comparison
-        score_series = pd.read_csv(paths.result_file('score', None, UNIVERSE, VARIANT),
+        score_series = pd.read_csv(paths.result_file('score', REGION, UNIVERSE, VARIANT),
                                    usecols=['date', 'permno', score]).set_index(['date', 'permno'])[score].dropna()
         decay = score_decay_table(w_hedged, w_hedged, p['ret'], horizons=(1, 3, 6, 12))
         decay.to_csv(out_dir / output_name('signal_score_decay', score))
@@ -240,6 +240,8 @@ if __name__ == '__main__':
             pe = dict(p)
             pe['factors'], pe['fw'] = facs, fws
             hb = rebuilt_betas(out_dir, score, 'all', label_)
+            if hb.empty:                                     # hedge_score.py has no ratios for this specification
+                continue
             hd, wd = hedge_score(pe, w, ls, hb)
             full = score_stats(hd, wd, factors, {'Full': (hd.index.min(), hd.index.max())}).loc['Full']
             hd2 = hd.dropna()

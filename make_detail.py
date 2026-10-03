@@ -34,8 +34,8 @@ Company data (a region, no universe; the results are named [REGION_]kind[_varian
     python make_detail.py --model GL@:EI_sub_val                          the same model as [REGION@][UNIVERSE][:variant]
     python make_detail.py --model GL_EI US_EI --skip-existing             two regions' EI models, only the missing analyses
 The variant's tree set-up (e.g. EI_sub) must be in TREE_SETUPS (src/constants.py), which also gives the model's factor
-characteristics; reading company data needs the AIalpha/connector packages. factor_spanning.py skips regions, so
-their decks leave out the hedged-score pages that need it.
+characteristics; reading company data needs the AIalpha/connector packages. Company data has no market beta, so its
+size-and-beta page adds size to the hedge only.
 Each step's output goes to result/logs/<step>_<model>.log.
 """
 import argparse

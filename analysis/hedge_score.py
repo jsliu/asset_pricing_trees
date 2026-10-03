@@ -10,7 +10,7 @@ from that month's stocks and characteristics, takes their score-weighted long/sh
 within each market-cap quintile - and regresses them on the factors. Only months before the refit are used.
 
 Hedge ratios are estimated for every score and universe on the nine factors, and for all stocks also with size and
-with size and market beta added (HEDGE_SPECS; characteristic files only). They are saved in long form to
+with size and market beta added (HEDGE_SPECS; size for every run, market beta for the characteristic files). They are saved in long form to
 hedge_betas_rebuilt.csv, which analysis/factor_spanning.py uses for all its hedged-score analyses. The default score's
 hedged long/short is also saved as hedged_score_nodes_by_period.csv.
 
@@ -86,13 +86,12 @@ if __name__ == '__main__':
     for series in list(ret_by_date.values()) + list(bucket_by_date.values()):
         assert series.index.is_unique
 
-    # the factor sets: the nine, and with size and market beta added (characteristic files only)
+    # the factor sets: the nine, and with size and (where the data has it) market beta added
     factor_sets = {'9 factors': factors}
-    if REGION is None:
-        extra_rets, _, _ = extra_factors(UNIVERSE, VARIANT)
-        for spec, added in HEDGE_SPECS.items():
-            if added:
-                factor_sets[spec] = pd.concat([factors, extra_rets[added]], axis=1, join='inner')
+    extra_rets, _, _ = extra_factors(REGION, UNIVERSE, VARIANT)
+    for spec, added in HEDGE_SPECS.items():
+        if added and all(a in extra_rets for a in added):
+            factor_sets[spec] = pd.concat([factors, extra_rets[added]], axis=1, join='inner')
 
     # node weights of every refit: the SDF's, and the original score's if the backtest saved them
     keys = ['combination', 'port', 'node']
