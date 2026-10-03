@@ -1,6 +1,6 @@
 """
 Charts for the backtest presentation, from result/ and the run's report folder (e.g. result/report_full/).
-Run analysis/backtest_report.py first, then from the project root: python presentation/make_charts.py [<universe>] [--region GL] [--vw | --variant TAGS]
+Run analysis/backtest_report.py first, then from the project root: python presentation/make_charts.py [<universe>] [--region GL] [--variant TAGS]
 PNGs are written to presentation/charts/; make_deck.py draws the same charts into the PDF.
 """
 import sys

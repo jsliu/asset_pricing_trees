@@ -10,7 +10,7 @@ the factor returns, rank IC, turnover and trading costs (overall and by period),
 information ratio in a long-only portfolio against the cap-weighted benchmark (30% active share).
 
 Run backtest_report.py for the run first (it saves the factor returns), then from the project root:
-    python analysis/neutralize_scores.py [<universe>] [--region GL] [--vw | --variant TAGS]      e.g. python analysis/neutralize_scores.py largecap
+    python analysis/neutralize_scores.py [<universe>] [--region GL] [--variant TAGS]      e.g. python analysis/neutralize_scores.py largecap
 Saves the neutral score to result/[<region>_]score_neutral[_<universe>][_<variant>].csv (date, permno,
 size_oriented_resid, size_oriented_resid_norm), e.g. result/score_neutral_largecap_slow3_val.csv, and the
 comparison to the run's report folder (neutral_score_by_period.csv, neutral_score_summary.csv).

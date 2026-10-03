@@ -11,7 +11,7 @@ rebuilt-history hedge ratios of analysis/hedge_score.py), trading the whole book
 -> turnover_controls_score_by_period.csv, turnover_controls_score_summary.csv. Run hedge_score.py first for that.
 
 Run backtest_report.py for the same universe first, then from the project root:
-    python analysis/turnover_controls.py [<universe>] [--region GL] [--vw | --variant TAGS]      e.g. python analysis/turnover_controls.py largecap
+    python analysis/turnover_controls.py [<universe>] [--region GL] [--variant TAGS]      e.g. python analysis/turnover_controls.py largecap
 Tables are printed and saved to the report folder (turnover_controls_*.csv).
 """
 import sys

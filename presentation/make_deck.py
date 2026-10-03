@@ -1,7 +1,7 @@
 """
 Builds the backtest presentation as a PDF (16:9 pages) from the backtest outputs and the report tables.
 Run analysis/backtest_report.py first, then from the project root:
-    python presentation/make_deck.py [<universe>] [--region GL] [--vw | --variant TAGS] [--png]
+    python presentation/make_deck.py [<universe>] [--region GL] [--variant TAGS] [--png]
         -> presentation/[<region>_]backtest[_<universe>][_vw].pdf (universe defaults to 'full');
            --png also writes one PNG per page to presentation/deck_preview/
 Numbers, tables and the descriptive sentences are all computed from the current results.
@@ -522,6 +522,53 @@ def build(d, path, preview_dir=None):
                     if b['Sharpe'] - c['Sharpe'] > 0.02 else "Adding beta to the hedge changes little")
                  + (f" ({other_txt})." if others else "."), W - 2 * M, size=14, color=TEXT)
             deck.save(fig)
+
+    # 9f. the tree scores added to the existing factor scores (analysis/backtest_analysis.py)
+    rep_dir = DataPaths().result_file("report", REGION, UNIVERSE, VARIANT, ext=None)
+    if (rep_dir / "combined_scores_summary.csv").exists() and (rep_dir / "combined_scores_pnl.csv").exists():
+        comb = pd.read_csv(rep_dir / "combined_scores_summary.csv", index_col=0)
+        comb_pnl = pd.read_csv(rep_dir / "combined_scores_pnl.csv", index_col=0)
+        trees = [k for k in comb.index if k != "EI alone"]
+        palette = dict(zip(["Tree", "Resid", "Hedged", "Original"], ["#2a78d6", "#eda100", "#eb6834", "#1baf7a"]))
+        fig = deck.slide("Adding to the factors", "Each tree score combined with the existing factor scores")
+        ax = chart(fig, M + 0.2, 2.45, 6.9, 4.1)
+        cum = comb_pnl.cumsum() * 100
+        cum.index = mc.to_dt(cum.index)
+        ax.plot(cum.index, cum["EI"], color="#8a94a3", linewidth=2.6, label=f"EI ({cum['EI'].iloc[-1]:.0f}%)")
+        for k in trees:
+            col = f"EI + {k}"
+            ax.plot(cum.index, cum[col], color=palette.get(k, "#4a3aa7"), linewidth=1.8,
+                    label=f"+ {k} ({cum[col].iloc[-1]:.0f}%)")
+        ax.set_ylabel("Cumulative return, % (sum of monthly)")
+        ax.legend(loc="upper left", fontsize=13)
+        rows = [["EI alone", num(comb.loc["EI alone", "IR, EI + tree score"]), "", num(comb.loc["EI alone", "IC"], "{:.3f}"),
+                 num(comb.loc["EI alone", "ICIR"]), f"{comb.loc['EI alone', 'turnover']:.0%}"]]
+        rows += [[f"+ {k}", num(comb.loc[k, "IR, EI + tree score"]),
+                  f"{num(comb.loc[k, 'IR gain over EI'], '{:+.2f}')} ({comb.loc[k, 'gain t-stat']:.1f})",
+                  num(comb.loc[k, "IC"], "{:.3f}"), num(comb.loc[k, "ICIR"]), f"{comb.loc[k, 'turnover']:.0%}"]
+                 for k in trees]
+        tx, tw = 7.9, W - M - 7.9
+        y = table(fig, tx, 6.9, tw, ["Score", "IR", "Gain (t)", "IC", "ICIR", "Turnover"], rows,
+                  [0.22, 0.13, 0.22, 0.15, 0.13, 0.15], size=14, row_h=0.5, bold=(0,))
+        weighting = ("each combination is 80% the production-weighted factor scores and 20% the tree score"
+                     if REGION is not None else
+                     f"the factor scores and the tree score are averaged with equal weights "
+                     f"(tree score 1/{len(FEATURES) + 1})")
+        text(fig, tx, y - 0.25, f"EI: the {len(FEATURES)} existing factor scores; {weighting}. IR and gain: the "
+             "score-weighted long/short's information ratio and its rise over EI (t of the monthly difference). "
+             "Tree, Resid, Hedged, Original: the score, its residual on the factor scores, its factor-hedged positions "
+             "and the original score, all rank-normalised.", tw, size=11, color=MUTED)
+        best = comb.loc[trees, "IR gain over EI"].idxmax()
+        text(fig, M, 1.85, f"What it shows: every tree score adds to the factors, and {best.lower()} adds the most "
+             f"(IR {num(comb.loc['EI alone', 'IR, EI + tree score'])} → {num(comb.loc[best, 'IR, EI + tree score'])}, "
+             f"IC {num(comb.loc['EI alone', 'IC'], '{:.3f}')} → {num(comb.loc[best, 'IC'], '{:.3f}')}); turnover moves "
+             f"from {comb.loc['EI alone', 'turnover']:.0%} to {comb.loc[best, 'turnover']:.0%}."
+             if (comb.loc[trees, "IR gain over EI"] > 0).all() else
+             f"What it shows: {best.lower()} adds the most to the factors "
+             f"(IR {num(comb.loc['EI alone', 'IR, EI + tree score'])} → {num(comb.loc[best, 'IR, EI + tree score'])}); "
+             f"{', '.join(k.lower() for k in trees if comb.loc[k, 'IR gain over EI'] <= 0)} do not.",
+             W - 2 * M, size=14, color=TEXT)
+        deck.save(fig)
 
     # 10. scores by period
     def tilt(p):

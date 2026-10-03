@@ -15,9 +15,9 @@ alpha against the characteristic factor returns, for
        market-adjusted stock return, which adds up to Return_mkt_adj), and the score long/short within
        each size quintile.
 Tables are printed and saved to the 'report' result folder, e.g. result/report_largecap/.
-Run: python analysis/backtest_report.py [<universe>] [--region GL] [--vw] [--variant TAGS], e.g. largecap --vw for
-the value-weighted run or largecap --variant slow3_val for an experiment (see run_variant in src/constants.py);
-universe defaults to 'full' when no region is given.
+Run: python analysis/backtest_report.py [<universe>] [--region GL] [--variant TAGS], e.g. largecap --variant vw for
+the value-weighted run or largecap --variant slow3_val for an experiment: the variant is the run's file-name part after
+the universe (see run_variant in src/constants.py). Universe defaults to 'full' when no region is given.
 """
 import sys
 from pathlib import Path
@@ -39,16 +39,15 @@ from src.functions import calc_fac_ret, _get_weights
 
 
 def _run_args():
-    """python <script> [<universe>] [--region GL] [--vw] [--variant TAGS]; universe defaults to 'full' when no
-    region is given; --vw selects the value-weighted run, --variant any run (e.g. 'vw', 'slow3_val')."""
+    """python <script> [<universe>] [--region GL] [--variant TAGS]; universe defaults to 'full' when no region is
+    given; --variant is the run's file-name part, e.g. 'vw', 'slow3_val' or 'vw_EI_sub_val'."""
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument('universe', nargs='?')
     parser.add_argument('--region')
-    parser.add_argument('--vw', action='store_true')
     parser.add_argument('--variant')
     args, _ = parser.parse_known_args()
     universe = args.universe if (args.universe or args.region) else 'full'
-    return args.region, universe, args.variant or ('vw' if args.vw else None)
+    return args.region, universe, args.variant
 
 
 REGION, UNIVERSE, VARIANT = _run_args()            # VARIANT: file-name part of the run, e.g. None, 'vw', 'slow3_val'

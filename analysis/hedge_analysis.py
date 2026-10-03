@@ -16,7 +16,7 @@ next refit). This script
        characteristics (momentum, reversal), because the stocks then had other characteristics.
 
 Run backtest_report.py for the same universe first (it saves the factor returns), then from the project root:
-    python analysis/hedge_analysis.py [<universe>] [--region GL] [--vw | --variant TAGS]      e.g. python analysis/hedge_analysis.py largecap
+    python analysis/hedge_analysis.py [<universe>] [--region GL] [--variant TAGS]      e.g. python analysis/hedge_analysis.py largecap
 Tables are printed and saved to the report folder (e.g. result/report_largecap/hedge_*.csv).
 """
 import sys

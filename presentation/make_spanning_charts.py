@@ -3,7 +3,7 @@
 Charts for the factor-hedged score (analysis/factor_spanning.py).
 
 Run analysis/factor_spanning.py for the run first, then from the project root:
-    python presentation/make_spanning_charts.py [<universe>] [--vw | --variant TAGS]     e.g. ... largecap
+    python presentation/make_spanning_charts.py [<universe>] [--variant TAGS]     e.g. ... largecap
 PNGs go to presentation/charts/: signal_hedged_cumulative.png, signal_spanning_hedged.png, signal_hedged_sharpe.png.
 make_deck.py draws the same charts into the "hedged score" slides.
 
@@ -267,7 +267,7 @@ def main():
     UNIVERSE, VARIANT = 'full', None
     args = [a for a in sys.argv[1:] if not a.startswith('-')]
     UNIVERSE = args[0] if args else 'full'
-    VARIANT = 'vw' if '--vw' in sys.argv else None
+    VARIANT = None
     if '--variant' in sys.argv:
         VARIANT = sys.argv[sys.argv.index('--variant') + 1]
     OUT.mkdir(exist_ok=True)

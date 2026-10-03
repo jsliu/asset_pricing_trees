@@ -15,7 +15,7 @@ hedge_betas_rebuilt.csv, which analysis/factor_spanning.py uses for all its hedg
 hedged long/short is also saved as hedged_score_nodes_by_period.csv.
 
 Run backtest.py, backtest_report.py and hedge_analysis.py for the same run first, then from the project root:
-    python analysis/hedge_score.py [<universe>] [--region GL] [--vw | --variant TAGS]
+    python analysis/hedge_score.py [<universe>] [--region GL] [--variant TAGS]
 """
 import sys
 import time

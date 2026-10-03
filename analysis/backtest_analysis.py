@@ -1,8 +1,42 @@
 # %%
+"""
+How much the tree scores add to the existing factor scores, for any run: company data (a region) or the
+characteristic files (a universe).
+
+Each tree score in TREE_SCORES (the score, its residual on the factor scores, its factor-hedged positions and the
+original score, all rank-normalised) is combined with the run's factor scores, and the combinations are compared with
+the factor scores alone (EI):
+    characteristic files   the factor scores are the factor characteristics rank-normalised each month; EI and each
+                           combination are equal-weighted (the tree score has weight 1/(number of factors + 1))
+    company data           the factor scores are the company factor scores as they are; EI is weighted with the
+                           region's production weights (FACTOR_WEIGHTS) and each combination is
+                           (1 - TREE_WEIGHT) x EI + TREE_WEIGHT x tree score
+The factors are the run's factor characteristics (factor_chars of its tree set-up, as in the backtest).
+
+Reported, for EI and each combination: performance (score-weighted long/short, with the SDF and each tree score alone
+for reference) and rolling returns, IC and ICIR, cross-sectional R2 of returns on the scores (with paired t-tests
+against EI), turnover, decay; each tree score's factor exposure, its correlation with the factor scores and the IC of
+its residual on them. Company data only: sector exposure and, when the optimiser backtests exist (BT_DIR), their R2 on
+the factor returns and the transfer coefficient of each score.
+The comparison table and the monthly returns go to the run's report folder (combined_scores_summary.csv,
+combined_scores_pnl.csv) and the combined scores to
+result/[<region>_]combined_scores[_<universe>][_<variant>].csv.
+
+The residual and hedged scores come from the score file when the backtest wrote them; otherwise they are computed
+with the backtest's function (src.score_hedging) and the hedge ratios of analysis/hedge_score.py (run it first); a
+score that cannot be had is left out.
+
+Run from the project root (or cell by cell in an IDE, which uses the defaults of the argument parsers):
+    python analysis/backtest_analysis.py largecap --variant val
+    python analysis/backtest_analysis.py --region GL --variant EI_sub_val --start 20060601
+    python analysis/backtest_analysis.py full --no-plots
+"""
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))   # project root, for src/ and backtest.py
+
+import argparse
 
 import numpy as np
 import pandas as pd
@@ -10,56 +44,22 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 from scipy.stats import ttest_rel
 
-from backtest import r_squared, rank_normalize
-from src.constants import DataPaths, Columns, Chars, Years
-from src.functions import calc_fac_ret, calc_turnover, calc_decay, calc_factor_exposure, grouped_exposure, summary, get_residuals
-from src.preprocessing import read_ei_data, read_big_universe, read_all_data
+from analysis.backtest_report import FEATURES, LABEL, REGION, RET_NAME, UNIVERSE, VARIANT
+from backtest import r_squared
+from src.constants import DataPaths
+from src.functions import (calc_fac_ret, calc_turnover, calc_decay, calc_factor_exposure, grouped_exposure, summary,
+                           get_residuals, rank_normalise)
+from src.preprocessing import read_backtest_data, read_ei_data, read_all_data
+from src.score_hedging import neutral_scores
 
-# %% 
-# performance at portfolio level
-sns.set_theme()
-chars = Chars()
-years = Years()
-paths = DataPaths()
-suffix = 'std'
-ret_name = 'gross_returns'
-regions = ['GL', 'US', 'EU', 'UK', 'JP', 'AP', 'EM']
-# regions = ['US', ]
-for reg in regions:
-    print(f'Processing {reg}')
-    # features = list(chars.__dict__.values())[:-2]
-    features = ['val', 'qual', 'fcf_rank', 'trd', 'sen']
-    if reg == "ALL":
-        data, CHARAS_LIST, _ = read_all_data(target=ret_name, ei_factors=features)
-    else:
-        data, _, CHARAS_LIST, _, _ = read_ei_data(region_=reg, target=ret_name, ei_factors=features)
-    data.loc[:, 'lme'] = np.log(data[Columns.size_col])
-    data = data.swaplevel(0, 1)
-
-    ai_pnl = pd.read_csv(paths.result_file('ret', region=reg), index_col=0)[['Return']]
-    ai_pnl.index.name = 'Date'
-    ei_pnl = calc_fac_ret(data[features].mean(axis=1), data[ret_name], date_col='date', score_weighted=True)
-    pnl = pd.concat([ai_pnl, ei_pnl], axis=1, sort=True)
-    pnl.index = pd.to_datetime(pnl.index, format="%Y%m%d")
-    dates = pnl.index
-    pnl = pnl.loc[dates[dates >= '2006-01-31']].fillna(0)
-    pnl.columns = ['Tree', 'EI']
-    pnl['Combined'] = pnl['EI'] * 0.7 + pnl['Tree'] * 0.3 
-    # pnl = pd.concat([pnl, comb_pnl], axis=1)
-    pnl.cumsum().plot(title=f'{reg}')
-    plt.show()
-    print(summary(pnl, ann_factor=12, sorted=False))
-    print(pnl.corr())
-
-# %%
-# performance analysis
-sns.set_theme()
-chars = Chars()
-years = Years()
-paths = DataPaths()
-suffix = 'sub_fac2'
-ret_name = 'gross_returns'
-factor_weights = {
+TREE_SCORES = {                                        # name in the tables -> column of the score file
+    'Tree': 'size_oriented_norm',                      # the score, rank-normalised
+    'Resid': 'size_oriented_resid_norm',               # its residual on the factor scores
+    'Hedged': 'size_oriented_hedged_norm',             # its factor-hedged positions
+    'Original': 'norm_score',                          # the original score
+}
+# company data: production weights of the factor scores, by region, and the tree score's weight in a combination
+FACTOR_WEIGHTS = {
     'ALL': {'fcf_rank': 0.08, 'qual': 0.37, 'sen': 0.22, 'trd': 0.15, 'val': 0.18},
     'AP': {'fcf_rank': 0.085, 'qual': 0.365, 'sen': 0.18, 'trd': 0.2, 'val': 0.17},
     'EM': {'fcf_rank': 0.085, 'qual': 0.385, 'sen': 0.18, 'trd': 0.2, 'val': 0.15},
@@ -69,232 +69,292 @@ factor_weights = {
     'UK': {'fcf_rank': 0.07, 'qual': 0.36, 'sen': 0.22, 'trd': 0.17, 'val': 0.18},
     'US': {'fcf_rank': 0.06, 'qual': 0.4, 'sen': 0.18, 'trd': 0.18, 'val': 0.18},
 }
-# quant_winter_start = 20180101
-# quant_winter_end = 20210101
-# quant_winter_start = 20210101
-# quant_winter_end = 20230101
-quant_winter_start = 20060601
-quant_winter_end = 20260501
-# regions = ['GL', 'US', 'EU', 'UK', 'JP', 'AP', 'EM']
-# regions = ['GL', 'US', 'EU', 'UK']
-regions = ['GL', ]
-# regions = ['JP', 'AP']
-for reg in regions:
-    print(f'Processing {reg}')
-    # features = list(chars.__dict__.values())[:-2]
-    features = ['val', 'qual', 'fcf_rank', 'trd', 'sen']
-    if reg == "ALL":
-        data, CHARAS_LIST, stock_info = read_all_data(target=ret_name, ei_factors=features)
+TREE_WEIGHT = 0.2
+# company data: the optimiser backtests, read when they exist ({region}, {tag} filled in)
+BT_DIR = r"J:\Quant\Enhanced Index\Team\Zhen\projects\ap_trees\Backtest\backtest_pickles"
+BT_NAME = "better_beta_{region}_prod_2026-09-08_full_constraints_{tag}"
+BT_MODELS = None        # optimiser model name -> column of the combined-scores file; None pairs them in order
+
+
+def _analysis_args():
+    """The options of this script on top of backtest_report.py's run arguments."""
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument('--start', type=int, help='first date, YYYYMMDD')
+    parser.add_argument('--end', type=int, help='last date, YYYYMMDD')
+    parser.add_argument('--bt-tag', default='sub_fac2', help='tag of the optimiser backtest files (company data)')
+    parser.add_argument('--no-plots', action='store_true', help='print and save the tables only')
+    args, _ = parser.parse_known_args()
+    return args
+
+
+ARGS = _analysis_args()
+COMPANY = REGION is not None
+if ARGS.no_plots:
+    plt.show = lambda *a, **k: plt.close('all')
+
+
+def load_data():
+    """The run's stock panel by (date, permno), with the company stock information (sectors) for a region."""
+    stock_info = None
+    if REGION == 'ALL':
+        data, _, stock_info = read_all_data(target=RET_NAME, ei_factors=FEATURES)
+    elif COMPANY:
+        data, _, _, _, stock_info = read_ei_data(region_=REGION, target=RET_NAME, ei_factors=FEATURES)
     else:
-        data, _, CHARAS_LIST, _, stock_info = read_ei_data(region_=reg, target=ret_name, ei_factors=features)
-    data.loc[:, 'lme'] = np.log(data[Columns.size_col])
-    data = data.swaplevel(0, 1)
-    stock_info = stock_info.swaplevel(0, 1)
+        data = read_backtest_data(FEATURES, RET_NAME, universe=UNIVERSE)
+    data = data.swaplevel(0, 1).sort_index()
+    if stock_info is not None:
+        stock_info = stock_info.swaplevel(0, 1).sort_index()
+    return data, stock_info
 
-    # tree score: SDF node weights tilted towards the stocks most firmly inside each node, rank-normalised per date
-    ai_score = pd.read_csv(paths.result_file('score', region=reg)).set_index(['date', 'permno'])['size_oriented_norm']
-    ai_score.name = 'Tree'
-    ei_score = data[features]
 
-    # select quant winter
-    dates = data.index.levels[0]
-    quant_winter = dates[(dates >= quant_winter_start) & (dates < quant_winter_end)]
+def factor_score_panel(data):
+    """The factor scores: the company scores as they are, or each characteristic rank-normalised within each month."""
+    if COMPANY:
+        return data[FEATURES]
+    return data[FEATURES].groupby('date').transform(
+        lambda c: pd.Series(np.asarray(rank_normalise(c, cutoff_std=3.5), dtype=float), index=c.index))
 
-    data = data.loc[quant_winter]
-    ai_score = ai_score.loc[quant_winter]
-    ei_score = ei_score.loc[quant_winter]
-    combined_score = ei_score.merge(ai_score, left_index=True, right_index=True, how='left')
-    dates = combined_score.index.get_level_values('date').unique()
-    valid_dates = ~combined_score['Tree'].groupby('date').apply(lambda x: x.isna().all())
-    combined_score = combined_score.loc[dates[valid_dates]]
-    ai_pnl = calc_fac_ret(ai_score, data[ret_name], date_col='date', score_weighted=True)
-    ei_pnl = calc_fac_ret(ei_score.mean(axis=1), data[ret_name], date_col='date', score_weighted=True)
-    combined_pnl = calc_fac_ret(combined_score.mean(axis=1), data[ret_name], date_col='date', score_weighted=True)
-    pnl = pd.concat([ai_pnl, ei_pnl, combined_pnl], axis=1).dropna()
-    pnl.index = pd.to_datetime(pnl.index, format="%Y%m%d")
-    pnl.columns = ['Tree', 'EI', 'Combined']
-    pnl.cumsum().plot(title=f'{reg}: Performance').legend(loc='upper left', bbox_to_anchor=(1, 1))
+
+def tree_score_panel(data):
+    """The tree scores of TREE_SCORES by (date, permno), those that can be had (see the module docstring)."""
+    paths = DataPaths()
+    scores = pd.read_csv(paths.result_file('score', REGION, UNIVERSE, VARIANT)).set_index(['date', 'permno'])
+    missing = [c for c in TREE_SCORES.values() if c not in scores]
+    hedge_file = paths.result_file('report', REGION, UNIVERSE, VARIANT, ext=None) / 'hedge_betas_rebuilt.csv'
+    if missing:
+        h = None
+        if hedge_file.exists():
+            h = pd.read_csv(hedge_file).query(
+                "score == 'size_oriented_score' and universe == 'all' and spec == '9 factors'").pivot(
+                index='refit', columns='factor', values='beta')
+        print(f'{missing} not in the score file: computed from size_oriented_score'
+              + ('' if h is not None else f' (no {hedge_file.name}: the hedged score is left out)'))
+        refits = np.sort(h.index.to_numpy()) if h is not None else np.array([])
+        chars_by_date = {d: g.droplevel('date')[FEATURES] for d, g in data.groupby(level='date')}
+        extra = {}
+        for d, s in scores['size_oriented_score'].dropna().groupby(level='date'):
+            if d not in chars_by_date:
+                continue
+            k = np.searchsorted(refits, d, side='right') - 1          # the refit in force at d
+            extra[d] = neutral_scores(s.droplevel('date'), chars_by_date[d], h.loc[refits[k]] if k >= 0 else None)
+        extra = pd.concat(extra, names=['date', 'permno'])
+        scores = scores.join(extra[[c for c in missing if c in extra]], how='outer')
+    available = {k: c for k, c in TREE_SCORES.items() if c in scores}
+    out = scores[list(available.values())]
+    out.columns = list(available)
+    return out
+
+
+def combine(factor_scores, tree):
+    """EI and EI + each tree score: equal-weighted (characteristic files) or production-weighted (company data)."""
+    if COMPANY:
+        w = pd.Series(FACTOR_WEIGHTS[REGION]).reindex(FEATURES).fillna(0)
+        ei = factor_scores.fillna(0) @ w
+        combined = {k: (1 - TREE_WEIGHT) * ei + TREE_WEIGHT * tree[k].fillna(0) for k in tree}
+    else:
+        ei = factor_scores.mean(axis=1)
+        combined = {k: pd.concat([factor_scores, tree[k]], axis=1).mean(axis=1) for k in tree}
+    return ei.rename('EI'), pd.DataFrame(combined)
+
+
+def ic_series(score, ret):
+    """Monthly correlation of a score with the return."""
+    return pd.concat([score, ret], axis=1).dropna().groupby('date').apply(lambda x: x.corr().iloc[0, 1])
+
+
+def as_dates(frame):
+    frame = frame.copy()
+    frame.index = pd.to_datetime(frame.index.astype(str), format="%Y%m%d")
+    return frame
+
+
+def legend_with_means(ax, frame, fmt):
+    ax.legend([f"{c}: {fmt.format(frame[c].mean())}" for c in frame.columns], loc='upper left', bbox_to_anchor=(1, 1))
+
+
+def paired_t(a, b, name):
+    both = pd.concat([a, b], axis=1).dropna()
+    stats, pvalue = ttest_rel(both.iloc[:, 0], both.iloc[:, 1])
+    print(f'{name}: t {stats:.2f}, p-value {pvalue:.3f}')
+
+
+# %%
+# ---- inputs ----
+sns.set_theme()
+paths = DataPaths()
+data, stock_info = load_data()
+ret = data[RET_NAME]
+factor_scores = factor_score_panel(data)
+tree = tree_score_panel(data).reindex(factor_scores.index)
+
+# the months every tree score covers, within --start/--end, so the combinations are compared over the same sample
+covered = tree.notna().groupby('date').any()
+months = covered.index[covered.all(axis=1)]
+months = months[(months >= (ARGS.start or 0)) & (months <= (ARGS.end or 99999999))]
+factor_scores, tree, ret = factor_scores.loc[months], tree.loc[months], ret.loc[months]
+ei, combined = combine(factor_scores, tree)
+names = list(tree.columns)
+weighting = (f'production weights, tree score {TREE_WEIGHT:.0%}' if COMPANY else
+             f'equal weights, tree score 1/{len(FEATURES) + 1}')
+print(f'{LABEL}: {len(months)} months {months.min()}-{months.max()}; {len(FEATURES)} factors; {weighting}; '
+      f'tree scores {names}')
+
+# %%
+# ---- performance ----
+sdf = pd.read_csv(paths.result_file('ret', REGION, UNIVERSE, VARIANT), index_col=0)['Return'].rename('SDF')
+pnl = calc_fac_ret(pd.concat([ei, tree.add_prefix('alone: '), combined.add_prefix('EI + ')], axis=1), ret,
+                   date_col='date', score_weighted=True)
+pnl = as_dates(pnl.join(sdf, how='left'))
+cols_main = ['EI'] + [f'EI + {k}' for k in names]
+pnl[cols_main].cumsum().plot(title=f'{LABEL}: EI and EI + each tree score').legend(loc='upper left', bbox_to_anchor=(1, 1))
+plt.show()
+stats = summary(pnl, ann_factor=12, sorted=False)
+print(stats)
+print(pnl[cols_main + ['SDF']].corr())
+for window, name in [(12, '1-year'), (36, '3-year')]:
+    pnl[cols_main].rolling(window).sum().plot(title=f'{LABEL}: Rolling {name}').legend(loc='upper left', bbox_to_anchor=(1, 1))
     plt.show()
-    print(summary(pnl, ann_factor=12, sorted=False))
-    print(pnl.corr())
+gain = pnl[[f'EI + {k}' for k in names]].sub(pnl['EI'], axis=0)
+gain.columns = names
+gain.cumsum().plot(title=f'{LABEL}: Combined minus EI, cumulative').legend(loc='upper left', bbox_to_anchor=(1, 1))
+plt.show()
 
-    roll_perf = pnl.rolling(12).sum()
-    roll_perf.index = pd.to_datetime(roll_perf.index, format="%Y%m%d")
-    roll_perf.plot(title=f"{reg}: Rolling 1-year")
+# %%
+# ---- IC ----
+ic = as_dates(pd.DataFrame({c: ic_series(s, ret) for c, s in [('EI', ei)] + [(f'EI + {k}', combined[k]) for k in names]}))
+legend_with_means(ic.plot(title=f'{LABEL}: IC'), ic, '{:.3f}')
+plt.show()
+icir = ic.mean() / ic.std() * np.sqrt(12)
+print(pd.DataFrame({'IC': ic.mean(), 'ICIR (annual)': icir}))
+for k in names:
+    paired_t(ic['EI'], ic[f'EI + {k}'], f'IC, EI vs EI + {k}')
+
+# %%
+# ---- cross-sectional R2 of returns on the scores ----
+# characteristic files: the return at a date is the next month's; company data: as the earlier analysis did, the
+# return shifted by one month per stock
+r2_ret = ret.groupby('permno').shift() if COMPANY else ret
+panel = pd.concat([factor_scores, tree, r2_ret.rename('r2_ret')], axis=1)
+r2 = {'EI': panel.dropna(subset=FEATURES + ['r2_ret']).groupby('date').apply(lambda x: r_squared(x[FEATURES], x['r2_ret']))}
+for k in names:
+    r2[f'EI + {k}'] = panel.dropna(subset=FEATURES + [k, 'r2_ret']).groupby('date').apply(
+        lambda x: r_squared(x[FEATURES + [k]], x['r2_ret']))
+r2 = as_dates(pd.DataFrame(r2))
+legend_with_means(r2.plot(title=f'{LABEL}: R2'), r2, '{:.4f}')
+plt.show()
+for k in names:
+    paired_t(r2['EI'], r2[f'EI + {k}'], f'R2, EI vs EI + {k}')
+
+# %%
+# ---- turnover and decay ----
+scores_main = pd.concat([ei, combined.add_prefix('EI + ')], axis=1)
+turnover = as_dates(scores_main.apply(lambda x: calc_turnover(x.dropna(), stock_id='permno', date_col='date')))
+legend_with_means(turnover.plot(title=f'{LABEL}: Turnover'), turnover, '{:.1%}')
+plt.show()
+decay = scores_main.apply(lambda x: calc_decay(x.dropna(), date_col='date'))
+decay.plot(title=f'{LABEL}: Decay').legend(loc='upper left', bbox_to_anchor=(1, 1))
+plt.show()
+
+# %%
+# ---- the tree scores against the factors: exposure, correlation, residual IC ----
+exposure = {k: pd.concat([factor_scores, tree[k]], axis=1).dropna(subset=[k]).groupby('date').apply(
+    lambda x: x[FEATURES].apply(lambda y: calc_factor_exposure(x[k], factor=y))) for k in names}
+avg_exposure = pd.DataFrame({k: e.mean() for k, e in exposure.items()})
+avg_exposure.plot(kind='bar', title=f'{LABEL}: Average factor exposure of each tree score')
+plt.show()
+print(avg_exposure.round(3))
+for k, e in exposure.items():
+    e = as_dates(e)
+    legend_with_means(e.plot(title=f'{LABEL}: Factor exposure of {k}'), e, '{:.2f}')
     plt.show()
+corr = pd.DataFrame({k: pd.concat([factor_scores, tree[k]], axis=1).dropna(subset=[k]).groupby('date').apply(
+    lambda x: x[FEATURES].corrwith(x[k])).mean() for k in names})
+print('Mean correlation of each tree score with the factor scores')
+print(corr.round(3))
+resid_ic = {}
+for k in names:
+    resid = get_residuals(pd.concat([factor_scores, tree[k]], axis=1).dropna(subset=[k]), factor_names=FEATURES,
+                          return_name=k, date_name='date')
+    resid_ic[k] = pd.Series({'IC': ic_series(tree[k], ret).mean(), 'residual IC': ic_series(resid, ret).mean()})
+print('IC of each tree score and of its residual on the factor scores')
+print(pd.DataFrame(resid_ic).T.round(4))
 
-    roll_perf = pnl.rolling(36).sum()
-    roll_perf.index = pd.to_datetime(roll_perf.index, format="%Y%m%d")
-    roll_perf.plot(title=f"{reg}: Rolling 3-year")
+# %%
+# ---- company data: sector exposure ----
+if stock_info is not None and 'sector' in stock_info:
+    sector = stock_info['sector']
+    grp_exp = pd.concat({c: grouped_exposure(pd.concat([s, sector], axis=1, join='inner'))
+                         for c, s in [('EI', ei)] + [(f'EI + {k}', combined[k]) for k in names]
+                         + [(k, tree[k]) for k in names]}, axis=1)
+    grp_exp[cols_main].groupby('sector').mean().plot(kind='bar', title=f"{LABEL}: Average sector exposure")
     plt.show()
+    for k in names:
+        frame = as_dates(grp_exp[k].unstack())
+        legend_with_means(frame.plot(title=f"{LABEL}: Sector exposure of {k}"), frame, '{:.1%}')
+        plt.show()
 
-    factor_pnl = calc_fac_ret(combined_score, data['gross_returns'], date_col='date', score_weighted=True)
-    factor_pnl.index = pd.to_datetime(factor_pnl.index, format="%Y%m%d")
-    factor_pnl.cumsum().plot(title=f"{reg}: Factor Performance").legend(loc='upper left', bbox_to_anchor=(1, 1))
-    plt.show()
-    print(summary(factor_pnl, ann_factor=12, sorted=False))
-    print(factor_pnl.corr())
+# %%
+# ---- one table to compare the combinations; the combined scores for the optimiser ----
+table = pd.DataFrame({k: {
+    'IR, tree score alone': stats.loc[f'alone: {k}', 'IR'],
+    'IR, EI + tree score': stats.loc[f'EI + {k}', 'IR'],
+    'IR gain over EI': stats.loc[f'EI + {k}', 'IR'] - stats.loc['EI', 'IR'],
+    'gain t-stat': gain[k].mean() / gain[k].std() * np.sqrt(gain[k].count()),
+    'corr with EI pnl': pnl['EI'].corr(pnl[f'EI + {k}']),
+    'IC': ic[f'EI + {k}'].mean(), 'ICIR': icir[f'EI + {k}'],
+    'R2': r2[f'EI + {k}'].mean(), 'turnover': turnover[f'EI + {k}'].mean(),
+    'decay, 3 months': decay.loc[3, f'EI + {k}'],
+} for k in names}).T
+table.loc['EI alone'] = {'IR, EI + tree score': stats.loc['EI', 'IR'], 'IC': ic['EI'].mean(), 'ICIR': icir['EI'],
+                         'R2': r2['EI'].mean(), 'turnover': turnover['EI'].mean(), 'decay, 3 months': decay.loc[3, 'EI']}
+print(f'\n==== {LABEL}: the combinations ({weighting}) ====')
+print(table.round(3).to_string())
+report_dir = paths.result_file('report', REGION, UNIVERSE, VARIANT, ext=None)
+report_dir.mkdir(parents=True, exist_ok=True)
+table.to_csv(report_dir / 'combined_scores_summary.csv')
+alpha = pd.concat([ei.rename('ei')] + [combined[k].rename(f'ei+{k.lower()}') for k in names], axis=1)
+alpha.to_csv(paths.result_file('combined_scores', REGION, UNIVERSE, VARIANT))
+pnl_out = pnl[cols_main].copy()                        # monthly returns of EI and each combination, for the deck
+pnl_out.index = pnl_out.index.strftime('%Y%m%d').astype(int).rename('date')
+pnl_out.to_csv(report_dir / 'combined_scores_pnl.csv')
+print(f'Saved {report_dir / "combined_scores_summary.csv"} and {paths.result_file("combined_scores", REGION, UNIVERSE, VARIANT)}')
 
-    # tree_grp_exp = pd.concat([ai_score, stock_info['sector']], axis=1, join='inner').groupby('date').apply(lambda x: calc_group_exposure(x.iloc[:, 0], groups=x.iloc[:, 1]))
-    # ei_grp_exp = pd.concat([ei_score.mean(axis=1), stock_info['sector']], axis=1, join='inner').groupby('date').apply(lambda x: calc_group_exposure(x.iloc[:, 0], groups=x.iloc[:, 1]))
-    # combined_grp_exp = pd.concat([combined_score.mean(axis=1), stock_info['sector']], axis=1, join='inner').groupby('date').apply(lambda x: calc_group_exposure(x.iloc[:, 0], groups=x.iloc[:, 1]))
-    tree_grp_exp = grouped_exposure(pd.concat([ai_score, stock_info['sector']], axis=1, join='inner'))
-    ei_grp_exp = grouped_exposure(pd.concat([ei_score.mean(axis=1), stock_info['sector']], axis=1, join='inner'))
-    combined_grp_exp = grouped_exposure(pd.concat([combined_score.mean(axis=1), stock_info['sector']], axis=1, join='inner'))
-    grp_exp = pd.concat([tree_grp_exp, ei_grp_exp, combined_grp_exp], axis=1)
-    grp_exp.columns = ['Tree', 'EI', 'Combined']
-    grp_exp.groupby('sector').mean().plot(kind='bar', title=f"{reg}: Average Exposure")
-    tree_grp_exp_df = tree_grp_exp.unstack()
-    tree_grp_exp_df.index = pd.to_datetime(tree_grp_exp_df.index, format="%Y%m%d")
-    ax = tree_grp_exp_df.plot(title=f"{reg}: Sector Exposure")
-    avg_exp = tree_grp_exp_df.mean()
-    labels = [
-        f"{col}: {avg_exp[col]*100:.1f}%"
-        for col in tree_grp_exp_df.columns
-    ]
-    ax.legend(labels, loc='upper left', bbox_to_anchor=(1, 1))
-
-    factor_turnover = combined_score.apply(lambda x: calc_turnover(x, stock_id='permno', date_col='date'))
-    factor_turnover.index = pd.to_datetime(factor_turnover.index, format="%Y%m%d")
-    avg_to = factor_turnover.mean()
-    ax = factor_turnover.plot(title=f"{reg}: Turnover")
-    labels = [
-        f"{col}: {avg_to[col]*100:.1f}%"
-        for col in factor_turnover.columns
-    ]
-    ax.legend(labels, loc='upper left', bbox_to_anchor=(1, 1))
-    plt.show()
-
-    factor_decay = combined_score.apply(lambda x: calc_decay(x, date_col='date'))
-    factor_decay.plot(title=f"{reg}: Decay").legend(loc='upper left', bbox_to_anchor=(1, 1))
-    plt.show()
-
-    factor_exposure = combined_score.groupby('date').apply(lambda x: x.iloc[:, :-1].apply(lambda y: calc_factor_exposure(x.iloc[:, -1], factor=y)))
-    factor_exposure.index = pd.to_datetime(factor_exposure.index, format="%Y%m%d")
-    avg_exp = factor_exposure.mean()
-    ax = factor_exposure.plot(title=f"{reg}: Factor Exposure")
-    labels = [
-        f"{col}: {avg_exp[col]:.2f}"
-        for col in factor_exposure.columns
-    ]
-    ax.legend(labels, loc='upper left', bbox_to_anchor=(1, 1))
-    plt.show()
-
-    plt.figure(figsize=(10,6))
-    corr_by_date = combined_score.groupby('date').corr()
-    cols = combined_score.columns
-    for i in range(len(cols)-1):
-        s = corr_by_date.loc[(slice(None), cols[i]), 'Tree']
-        s.index = s.index.droplevel(1)
-        s.index = pd.to_datetime(s.index, format="%Y%m%d")
-        avg_corr = s.mean()
-        plt.plot(s, label=f"{cols[i]}-tree: {avg_corr*100:.1f}%")
-    plt.legend(loc='upper left', bbox_to_anchor=(1, 1))
-    plt.title(f"{reg}: Correlation")
-    plt.show()
-
-    fac_wei = pd.Series(factor_weights[reg])
-    ei_alpha = combined_score.iloc[:,:-1].mean(axis=1)
-    ei_prod = combined_score.iloc[:, :-1].fillna(0).dot(fac_wei)
-    prod_alpha = combined_score.iloc[:, :-1].fillna(0).dot(fac_wei)*0.8 + combined_score.iloc[:, -1].fillna(0)*0.2
-    new_alpha = combined_score.mean(axis=1)
-    alpha = pd.concat([ei_prod, combined_score.iloc[:, -1], ei_alpha, new_alpha, prod_alpha], axis=1)
-    alpha.columns = ['ei', 'tree', 'ew_ei', 'ew_all', 'prod']
-    alpha.to_csv(f'result/{reg}_all_score_{suffix}.csv')
-
-    r2_tree = pd.concat([ai_score, data['gross_returns'].groupby('permno').shift()], axis=1).dropna().groupby('date').apply(lambda x: r_squared(x.iloc[:, :-1], x.iloc[:, -1]))
-    r2_ei = ei_score.merge(data['gross_returns'].groupby('permno').shift(), left_index=True, right_index=True).dropna().groupby('date').apply(lambda x: r_squared(x.iloc[:, :-1], x.iloc[:, -1]))
-    r2_combined = combined_score.merge(data['gross_returns'].groupby('permno').shift(), left_index=True, right_index=True).dropna().groupby('date').apply(lambda x: r_squared(x.iloc[:, :-1], x.iloc[:, -1]))
-    r2 = pd.concat([r2_tree, r2_ei, r2_combined], axis=1)
-    r2.index = pd.to_datetime(r2.index, format="%Y%m%d")
-    r2.columns = ['Tree', 'EI', 'Combined']
-    ax = r2.plot(title=f"{reg}: R2")
-    labels = [
-        f"{col}: {r2[col].mean():.2f}"
-        for col in r2.columns
-    ]
-    ax.legend(labels, loc='upper left', bbox_to_anchor=(1, 1))
-    plt.show()
-    stats, pvalue = ttest_rel(r2['EI'], r2['Combined'])
-    print(f"Stats: {stats}, P-value: {pvalue}")
-
-    tree_residuals = get_residuals(combined_score, factor_names=features, return_name='Tree', date_name='date')
-    resid_ic = pd.concat([tree_residuals, data['gross_returns']], axis=1).groupby('date').apply(lambda x: x.corr().iloc[0, 1])
-    tree_ic = pd.concat([ai_score, data['gross_returns']], axis=1).groupby('date').apply(lambda x: x.corr().iloc[0, 1])
-    alpha_ic = pd.concat([tree_ic, resid_ic], axis=1)
-    alpha_ic.index = pd.to_datetime(alpha_ic.index, format="%Y%m%d")
-    alpha_ic.columns = ['Tree', 'Residual']
-    ax = alpha_ic.plot(title=f"{reg}: IC")
-    labels = [
-        f"{col}: {alpha_ic[col].mean():.2f}"
-        for col in alpha_ic.columns
-    ]
-    ax.legend(labels, loc='upper left', bbox_to_anchor=(1, 1))
-    plt.show()
-
-    # ei_ic = pd.concat([ei_score.mean(axis=1), data['gross_returns']], axis=1).groupby('date').apply(lambda x: x.corr().iloc[0, 1])
-    # tree_ic = pd.concat([ai_score, data['gross_returns']], axis=1).groupby('date').apply(lambda x: x.corr().iloc[0, 1])
-    # combined_ic = pd.concat([combined_score.mean(axis=1), data['gross_returns']], axis=1).groupby('date').apply(lambda x: x.corr().iloc[0, 1])
-    # ic = pd.concat([tree_ic, ei_ic, combined_ic], axis=1)
-    # ic.index = pd.to_datetime(alpha_ic.index, format="%Y%m%d")
-    # ic.columns = ['Tree', 'EI', 'Combined']
-    ic = alpha.apply(lambda x: pd.concat([x, data['gross_returns']], axis=1).groupby('date').apply(lambda x: x.corr().iloc[0, 1]))
-    ic.index = pd.to_datetime(ic.index, format="%Y%m%d")
-    ax = ic.plot(title=f"{reg}: IC")
-    labels = [
-        f"{col}: {ic[col].mean():.2f}"
-        for col in ic.columns
-    ]
-    ax.legend(labels, loc='upper left', bbox_to_anchor=(1, 1))
-    plt.show()
-    stats, pvalue = ttest_rel(ic['ei'], ic['prod'])
-    print(f"Stats: {stats}, P-value: {pvalue}")
-    print(pd.DataFrame(ic.mean()/ic.std(), columns=["ICIR"]))
-
-    bt_rets = pd.read_excel(rf"J:\Quant\Enhanced Index\Team\Zhen\projects\ap_trees\Backtest\backtest_pickles\better_beta_{reg}_prod_2026-09-08_full_constraints_{suffix}_summary.xlsx", sheet_name="rets_active").set_index("dates")
-    bt_rets = bt_rets.loc[quant_winter]
-    bt_rets.index = pd.to_datetime(bt_rets.index, format="%Y%m%d")
-    ei_alpha = ei_pnl.copy()
-    ei_alpha.index = pd.to_datetime(ei_alpha.index, format="%Y%m%d")
-    models = bt_rets.columns
-    r2_ts = pd.DataFrame(index=models, columns=['tree2EI', 'Tree', 'EI', 'Combined'])
-    for m in models:
-        r2_ts.loc[m, 'tree2EI'] = r_squared(factor_pnl[features], factor_pnl['Tree'])
-        r2_ts.loc[m, 'Tree'] = r_squared(factor_pnl["Tree"], bt_rets[m])
-        r2_ts.loc[m, 'EI'] = r_squared(factor_pnl[features], bt_rets[m])
-        r2_ts.loc[m, 'Combined'] = r_squared(factor_pnl, bt_rets[m])
-        # r2_ts.loc[m, 'Tree'] = r_squared(factor_pnl["Tree"], ei_alpha)
-        # r2_ts.loc[m, 'EI'] = r_squared(factor_pnl[features], ei_alpha)
-        # r2_ts.loc[m, 'Combined'] = r_squared(factor_pnl, ei_alpha)
-    print(r2_ts)
-    # r2_ts.to_csv(f"{reg}_r2.csv")
-    bt_rets.cumsum().plot(title=f"{reg}")
+# %%
+# ---- company data: the optimiser backtests, if they exist ----
+bt_base = Path(BT_DIR) / BT_NAME.format(region=REGION, tag=ARGS.bt_tag) if COMPANY else None
+if bt_base is not None and Path(f'{bt_base}_summary.xlsx').exists():
+    bt_rets = pd.read_excel(f'{bt_base}_summary.xlsx', sheet_name="rets_active").set_index("dates")
+    bt_rets = as_dates(bt_rets.loc[bt_rets.index.isin(months)])
+    factor_pnl = as_dates(calc_fac_ret(pd.concat([factor_scores, tree], axis=1), data[RET_NAME].loc[months],
+                                       date_col='date', score_weighted=True))
+    r2_ts = pd.DataFrame({m: {'EI': r_squared(factor_pnl[FEATURES], bt_rets[m]),
+                              **{f'EI + {k}': r_squared(factor_pnl[FEATURES + [k]], bt_rets[m]) for k in names}}
+                          for m in bt_rets.columns}).T
+    print('R2 of each optimiser backtest on the factor returns')
+    print(r2_ts.round(3))
+    bt_rets.cumsum().plot(title=f"{LABEL}: optimiser backtests")
     plt.show()
     print(summary(bt_rets, sorted=False, ann_factor=12))
 
-    bt_pickle = pd.read_pickle(rf"J:\Quant\Enhanced Index\Team\Zhen\projects\ap_trees\Backtest\backtest_pickles\better_beta_{reg}_prod_2026-09-08_full_constraints_{suffix}.pickle")
-    models = dict(zip(bt_pickle.keys(), alpha.columns))
-    corr = {} 
+    bt_pickle = pd.read_pickle(f'{bt_base}.pickle')
+    models = BT_MODELS or dict(zip(bt_pickle.keys(), alpha.columns))
+    print(f'Transfer coefficient: optimiser model -> score {models}')
+    tc = {}
     for m, a in models.items():
-        alpha_a = alpha[a]
+        alpha_a = alpha[a].copy()
         alpha_a.index = pd.MultiIndex.from_arrays(
-            [
-                pd.to_datetime(alpha_a.index.get_level_values('date'), format="%Y%m%d"),
-                alpha_a.index.get_level_values('permno')
-            ],
-            names=bt_pickle[m]['optimal_weight'].index.names
-        )
-        corr[a] = pd.concat([alpha_a, bt_pickle[m]['optimal_weight']], axis=1, join='inner').groupby('dates').apply(lambda x: x.corr().iloc[0, 1])
-    tc = pd.DataFrame(corr)
-    ax = tc.plot(title=f"{reg}: TC")
-    labels = [
-        f"{col}: {tc[col].mean():.2f}"
-        for col in tc.columns
-    ]
-    ax.legend(labels, loc='upper left', bbox_to_anchor=(1, 1))
+            [pd.to_datetime(alpha_a.index.get_level_values('date').astype(str), format="%Y%m%d"),
+             alpha_a.index.get_level_values('permno')], names=bt_pickle[m]['optimal_weight'].index.names)
+        tc[a] = pd.concat([alpha_a, bt_pickle[m]['optimal_weight']], axis=1, join='inner').groupby(
+            level=0).apply(lambda x: x.corr().iloc[0, 1])
+    tc = pd.DataFrame(tc)
+    legend_with_means(tc.plot(title=f"{LABEL}: TC"), tc, '{:.2f}')
     plt.show()
-    stats, pvalue = ttest_rel(tc['ei'], tc['prod'])
-    print(f"Stats: {stats}, P-value: {pvalue}")
+    for c in tc.columns[1:]:
+        paired_t(tc[tc.columns[0]], tc[c], f'TC, {tc.columns[0]} vs {c}')
+elif COMPANY:
+    print(f'No optimiser backtests at {bt_base}_summary.xlsx: that part is skipped')
 
 # %%
 # sns.set_theme()

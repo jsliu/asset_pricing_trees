@@ -19,7 +19,7 @@ name added, e.g. signal_spanning_sharpe_norm_score.csv (see output_name). For th
                          built and hedged within each quintile   -> signal_hedged_by_size.csv (+ _monthly.csv)
 
 Run backtest_report.py, hedge_analysis.py and hedge_score.py for the run first, then from the project root:
-    python analysis/factor_spanning.py [<universe>] [--vw | --variant TAGS]     e.g. ... largecap
+    python analysis/factor_spanning.py [<universe>] [--variant TAGS]     e.g. ... largecap
 Tables are printed and saved to the run's report folder, e.g. result/report_largecap/.
 """
 import sys
@@ -41,16 +41,15 @@ from analysis.hedge_analysis import build_positions, score_weights, hedge_score,
 
 
 def _run_args():
-    """python <script> [<universe>] [--region GL] [--vw] [--variant TAGS]; universe defaults to 'full' (the same
+    """python <script> [<universe>] [--region GL] [--variant TAGS]; universe defaults to 'full' (the same
     convention as analysis/backtest_report.py)."""
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument('universe', nargs='?')
     parser.add_argument('--region')
-    parser.add_argument('--vw', action='store_true')
     parser.add_argument('--variant')
     args, _ = parser.parse_known_args()
     universe = args.universe if (args.universe or args.region) else 'full'
-    return args.region, universe, args.variant or ('vw' if args.vw else None)
+    return args.region, universe, args.variant
 
 
 SCORES = ['size_oriented_score', 'norm_score', 'sdf_weight']     # the first is the default score

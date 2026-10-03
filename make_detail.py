@@ -8,19 +8,20 @@ A model is any backtest with results in result/, named in one of three ways:
     its file-name label             largecap, largecap_val, largecap_slow3_val, full, largecap001, GL, GL_vw
     [REGION@][UNIVERSE][:variant]   largecap:val, full, GL@, GL@:vw   (as make_comparison.py --runs takes it)
     a run in make_presentation.RUNS by its label
-Before the deck, the analysis steps the deck reads (make_presentation.STEPS) are run for the model: all of them, only
+Before the deck, the analysis steps the deck reads (DETAIL_STEPS: make_presentation.STEPS and
+analysis/backtest_analysis.py, the tree scores combined with the factor scores) are run for the model: all of them, only
 the missing ones (--skip-existing), or none (--deck-only).
 
 Run from the project root:
-    python make_detail.py largecap                          the large-cap model, every analysis step, then the deck
-    python make_detail.py largecap_val full --skip-existing  two models, only the missing analyses
-    python make_detail.py GL@:vw --deck-only --png          a region's value-weighted run, deck only, with page previews
+    python make_detail.py --model largecap                                the large-cap model, every analysis step, then the deck
+    python make_detail.py --model largecap_val full --skip-existing       two models, only the missing analyses
+    python make_detail.py --model GL@:vw --deck-only --png                a region's value-weighted run, deck only, with page previews
 
 Company data (a region, no universe; the results are named [REGION_]kind[_variant], e.g. result/GL_ret_EI_sub_val.csv):
-    python make_detail.py GL                                region GL, default trees and pruning   (result/GL_ret.csv)
-    python make_detail.py GL_EI_sub_val                     region GL, EI_sub trees, validated pruning
-    python make_detail.py GL@:EI_sub_val                    the same model as [REGION@][UNIVERSE][:variant]
-    python make_detail.py GL_EI US_EI --skip-existing       two regions' EI models, only the missing analyses
+    python make_detail.py --model GL                                      region GL, default trees and pruning   (result/GL_ret.csv)
+    python make_detail.py --model GL_EI_sub_val                           region GL, EI_sub trees, validated pruning
+    python make_detail.py --model GL@:EI_sub_val                          the same model as [REGION@][UNIVERSE][:variant]
+    python make_detail.py --model GL_EI US_EI --skip-existing             two regions' EI models, only the missing analyses
 The variant's tree set-up (e.g. EI_sub) must be in TREE_SETUPS (src/constants.py), which also gives the model's factor
 characteristics; reading company data needs the AIalpha/connector packages. factor_spanning.py skips regions, so
 their decks leave out the hedged-score pages that need it.
@@ -30,9 +31,11 @@ import argparse
 import os
 import sys
 
-from make_presentation import RUNS, ROOT, run_analyses, run_args, run_name, run_step
+from make_presentation import RUNS, ROOT, STEPS, run_analyses, run_args, run_name, run_step
 from src.constants import DataPaths, parse_variant
 
+# the comparison's analysis steps, then the tree scores combined with the factor scores (its own slide)
+DETAIL_STEPS = STEPS + [('analysis/backtest_analysis.py', 'combined_scores_pnl.csv', ['--no-plots'])]
 UNIVERSES = ['largecap001', 'largecap', 'full']       # characteristic-file universes, longest name first
 
 
@@ -61,7 +64,8 @@ def parse_model(token):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument('models', nargs='+', metavar='MODEL', help='e.g. largecap, largecap_val, full, GL, GL@:vw')
+    parser.add_argument('--model', '--models', dest='models', nargs='+', required=True, metavar='MODEL',
+                        help='one or more models, e.g. largecap, largecap_val, full, GL, GL@:vw')
     steps = parser.add_mutually_exclusive_group()
     steps.add_argument('--skip-existing', action='store_true', help='run only the analysis steps whose output is missing')
     steps.add_argument('--deck-only', action='store_true', help='no analysis steps, only the deck')
@@ -87,7 +91,7 @@ def main():
             failed.append(name)
             continue
         if not args.deck_only:
-            failed_step = run_analyses(region, universe, variant, logs, env, args.skip_existing)
+            failed_step = run_analyses(region, universe, variant, logs, env, args.skip_existing, DETAIL_STEPS)
             if failed_step:
                 failed.append(f'{name}: {failed_step}')
                 continue

@@ -23,7 +23,8 @@ Run from the project root:
 Company data (regions), instead of RUNS:
     python make_presentation.py --regions GL                        one region
     python make_presentation.py --regions GL US EU UK JP AP EM      several regions, side by side in one PDF
-    python make_presentation.py --regions GL US --vw                value-weighted runs of those regions
+    python make_presentation.py --regions GL US --variant vw        value-weighted runs of those regions
+    python make_presentation.py --regions GL US --variant EI_sub_val   any other variant of those regions
 These write presentation/backtest_comparison_regions.pdf (--output to change it). The regions' backtests must
 exist first: in backtest.py (and build_trees.py) set regions = ['GL', 'US', ...] and universes = [None].
 One comparison holds at most 8 runs.
@@ -99,15 +100,17 @@ def run_step(script, args, log_file, env):
     return result.returncode == 0
 
 
-def run_analyses(region, universe, variant, logs, env, skip_existing=False):
-    """The analysis steps (STEPS) for one run, stopping at the first failure; returns the failed script or None."""
+def run_analyses(region, universe, variant, logs, env, skip_existing=False, steps=None):
+    """The analysis steps (STEPS, or `steps`: (script, file it writes last[, extra arguments])) for one run, stopping
+    at the first failure; returns the failed script or None."""
     name = run_name(region, universe, variant)
     report_dir = ROOT / DataPaths().result_file('report', region, universe, variant, ext=None)
-    for script, step_output in STEPS:
+    for script, step_output, *extra in (steps or STEPS):
         if skip_existing and step_output and (report_dir / step_output).exists():
             print(f'    {script:38s} {"exists, skipped":18s}')
             continue
-        if not run_step(script, run_args(region, universe, variant), logs / f'{Path(script).stem}_{name}.log', env):
+        args = run_args(region, universe, variant) + (extra[0] if extra else [])
+        if not run_step(script, args, logs / f'{Path(script).stem}_{name}.log', env):
             return script                               # later steps need this one's output
     return None
 
@@ -117,7 +120,7 @@ def main():
     parser.add_argument('--skip-existing', action='store_true', help='skip steps whose output already exists')
     parser.add_argument('--only', nargs='+', metavar='RUN', help='only these runs, e.g. full largecap_vw GL')
     parser.add_argument('--regions', nargs='+', metavar='REGION', help='company-data regions to run instead of RUNS, e.g. GL US EU')
-    parser.add_argument('--vw', action='store_true', help='with --regions: the value-weighted runs of those regions')
+    parser.add_argument('--variant', help="with --regions: the variant of those regions' runs, e.g. vw or EI_sub_val")
     parser.add_argument('--output', help='PDF name in presentation/ (default: backtest_comparison.pdf, '
                                          'or backtest_comparison_regions.pdf with --regions)')
     parser.add_argument('--png', action='store_true', help='also save page previews of the PDF')
@@ -128,7 +131,7 @@ def main():
     logs.mkdir(parents=True, exist_ok=True)
     env = {**os.environ, 'MPLBACKEND': 'Agg'}          # charts are saved, not shown
     failed = []
-    runs = [(region, None, 'vw' if args.vw else None) for region in args.regions] if args.regions else RUNS
+    runs = [(region, None, args.variant) for region in args.regions] if args.regions else RUNS
     output = args.output or ('backtest_comparison_regions.pdf' if args.regions else 'backtest_comparison.pdf')
 
     for region, universe, variant in runs:
