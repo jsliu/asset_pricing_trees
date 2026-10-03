@@ -6,8 +6,9 @@ characteristic files (a universe).
 Each tree score in TREE_SCORES (the score, its residual on the factor scores, its factor-hedged positions and the
 original score, all rank-normalised) is combined with the run's factor scores, and the combinations are compared with
 the factor scores alone (EI):
-    characteristic files   the factor scores are the factor characteristics rank-normalised each month; EI and each
-                           combination are equal-weighted (the tree score has weight 1/(number of factors + 1))
+    characteristic files   the factor scores are the factor characteristics rank-normalised each month and oriented
+                           (factor_signs: x -1 for those expected to pay when low); EI and each combination are
+                           equal-weighted (the tree score has weight 1/(number of factors + 1))
     company data           the factor scores are the company factor scores as they are; EI is weighted with the
                            region's production weights (FACTOR_WEIGHTS) and each combination is
                            (1 - TREE_WEIGHT) x EI + TREE_WEIGHT x tree score
@@ -46,7 +47,7 @@ from scipy.stats import ttest_rel
 
 from analysis.backtest_report import FEATURES, LABEL, REGION, RET_NAME, UNIVERSE, VARIANT
 from backtest import r_squared
-from src.constants import DataPaths
+from src.constants import DataPaths, factor_signs, parse_variant
 from src.functions import (calc_fac_ret, calc_turnover, calc_decay, calc_factor_exposure, grouped_exposure, summary,
                            get_residuals, rank_normalise)
 from src.preprocessing import read_backtest_data, read_ei_data, read_all_data
@@ -109,11 +110,13 @@ def load_data():
 
 
 def factor_score_panel(data):
-    """The factor scores: the company scores as they are, or each characteristic rank-normalised within each month."""
+    """The factor scores: the company scores as they are, or each characteristic rank-normalised within each month and
+    oriented so that high is expected to pay (factor_signs)."""
     if COMPANY:
         return data[FEATURES]
-    return data[FEATURES].groupby('date').transform(
+    scores = data[FEATURES].groupby('date').transform(
         lambda c: pd.Series(np.asarray(rank_normalise(c, cutoff_std=3.5), dtype=float), index=c.index))
+    return scores * pd.Series(factor_signs(parse_variant(VARIANT)[1]))
 
 
 def tree_score_panel(data):

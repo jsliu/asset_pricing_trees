@@ -162,18 +162,40 @@ DAILY_CHARS = [                                                         # charac
     'X3MILLIQ',                     # illiquidity
 ]
 
+# The direction in which each characteristic of the characteristic files is expected to pay, from the literature (set
+# in advance, not from this sample's returns): +1 long high, -1 long low. Only analysis/backtest_analysis.py uses it, to
+# orient the factor scores before averaging them into a factor model; the trees, the backtest and the factor
+# portfolios do not (they learn or estimate the signs themselves).
+CHAR_SIGNS = {
+    'beme': 1,          # value
+    'r12_2': 1,         # momentum
+    'r12_7': 1,         # intermediate momentum
+    'op': 1,            # operating profitability
+    'investment': -1,   # asset growth
+    'ac': -1,           # accruals
+    'idiovol': -1,      # idiosyncratic volatility
+    'st_rev': -1,       # short-term reversal
+    'lt_rev': -1,       # long-term reversal
+    'r36_13': -1,       # long-term reversal
+    'lturnover': -1,    # turnover (liquidity)
+}
+
 # Tree set-ups: tag in the tree and output file names -> 'chars', the characteristics the trees are built from
-# (None = every characteristic in Chars), 'depth', the tree depth, and 'factors', the characteristics of the factor
-# portfolios the run is residualised on and hedged with (absent = those in Chars, see factor_chars).
+# (None = every characteristic in Chars), 'depth', the tree depth, 'factors', the characteristics of the factor
+# portfolios the run is residualised on and hedged with (absent = those in Chars, see factor_chars), and 'signs', the
+# direction of each factor characteristic for combining them into a factor model (absent = all +1, see factor_signs).
 # A tag may contain '_' (parse_variant matches the known tags).
 TREE_SETUPS = {
-    None: {'chars': None, 'depth': Parameters.tree_depth},
-    'slow3': {'chars': ['ac', 'beme', 'r12_2', 'op', 'investment', 'lt_rev'], 'depth': 3},   # slow-moving, shallower
+    None: {'chars': None, 'depth': Parameters.tree_depth, 'signs': CHAR_SIGNS},
+    'slow3': {'chars': ['ac', 'beme', 'r12_2', 'op', 'investment', 'lt_rev'], 'depth': 3,   # slow-moving, shallower
+              'signs': CHAR_SIGNS},
     'slow4': {'chars': ['ac', 'beme', 'idiovol', 'r12_7', 'r36_13', 'op', 'investment', 'lt_rev', 'lturnover'],
               'depth': 4,   # 9 characteristics: st_rev and r12_2 dropped, both longer momenta added
-              'factors': ['ac', 'beme', 'idiovol', 'r12_7', 'r36_13', 'op', 'investment', 'lt_rev', 'lturnover']},  # hedge = tree chars
+              'factors': ['ac', 'beme', 'idiovol', 'r12_7', 'r36_13', 'op', 'investment', 'lt_rev', 'lturnover'],  # hedge = tree chars
+              'signs': CHAR_SIGNS},
     # best large-cap long/short with the least decay (analysis/characteristic_screen.py), SUV swapped for beme
-    'screen3': {'chars': ['investment', 's2p', 'prof', 'beme', 'cf', 'ol', 'noa', 'd2a', 'lt_rev'], 'depth': 3},
+    'screen3': {'chars': ['investment', 's2p', 'prof', 'beme', 'cf', 'ol', 'noa', 'd2a', 'lt_rev'], 'depth': 3,
+                'signs': CHAR_SIGNS},
     # company data (regions): trees and factors on the same characteristics
     'EI': {'chars': EI_CHARS, 'depth': Parameters.tree_depth, 'factors': EI_CHARS},
     'EI_sub': {'chars': EI_SUB_CHARS, 'depth': Parameters.tree_depth, 'factors': EI_SUB_CHARS},
@@ -217,6 +239,13 @@ def factor_chars(tree_tag: str = None) -> list:
         return list(factors)
     c = Chars()
     return [v for v in c.__dict__.values() if v not in (c.lme, c.returns)]
+
+
+def factor_signs(tree_tag: str = None) -> dict:
+    """Direction (+1 long high, -1 long low) of each factor characteristic of a tree set-up, for combining them into a
+    factor model: the set-up's 'signs', +1 for a characteristic it does not list or when it has none."""
+    signs = TREE_SETUPS[tree_tag].get('signs') or {}
+    return {f: signs.get(f, 1) for f in factor_chars(tree_tag)}
 
 
 def tree_variant(variant: str) -> str:
