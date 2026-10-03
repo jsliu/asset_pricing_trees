@@ -570,6 +570,31 @@ def build(d, path, preview_dir=None):
              W - 2 * M, size=14, color=TEXT)
         deck.save(fig)
 
+        # 9g. the combinations by period
+        if (rep_dir / "combined_scores_by_period.csv").exists():
+            bp = pd.read_csv(rep_dir / "combined_scores_by_period.csv", index_col=0)
+            cols = ["EI"] + [f"EI + {k}" for k in trees]
+            fig = deck.slide("Adding to the factors, by period", "EI and each combination, period by period")
+            rows = [[p_] + [num(bp.loc[p_, f"IR|{c}"]) for c in cols] + [num(bp.loc[p_, f"IC|{c}"], "{:.3f}") for c in cols]
+                    for p_ in bp.index]
+            widths_bp = [0.12] + [0.88 / (2 * len(cols))] * (2 * len(cols))
+            for label_, first in [("Information ratio", 1), ("IC", 1 + len(cols))]:   # labels over the column groups
+                gx = M + (W - 2 * M) * sum(widths_bp[:first])
+                fig.text((gx + 0.12) / W, 7.05 / H, label_, fontsize=14, weight="bold", color=ACCENT, va="bottom")
+                fig.add_artist(Line2D([(gx + 0.1) / W, (gx + (W - 2 * M) * sum(widths_bp[first:first + len(cols)]) - 0.1) / W],
+                                      [7.0 / H, 7.0 / H], color=ACCENT, linewidth=1))
+            heads = ["Period"] + ["EI"] + [f"+ {k}" for k in trees]
+            y = table(fig, M, 6.9, W - 2 * M, heads + heads[1:], rows, widths_bp, size=13, row_h=0.5, bold=(0,))
+            dec = [p_ for p_ in bp.index if p_ != "Full sample"]
+            best = comb.loc[trees, "IR gain over EI"].idxmax()
+            wins = [p_ for p_ in dec if bp.loc[p_, f"IR|EI + {best}"] > bp.loc[p_, "IR|EI"]]
+            last_p = dec[-1]
+            text(fig, M, y - 0.3, f"Information ratio and IC of the score-weighted long/short, by period. EI + {best.lower()} beats "
+                 f"EI in {len(wins)} of {len(dec)} periods; in the {last_p} its IR is "
+                 f"{num(bp.loc[last_p, f'IR|EI + {best}'])} against {num(bp.loc[last_p, 'IR|EI'])} "
+                 f"(t of the monthly gain {bp.loc[last_p, f'gain t|{best}']:.1f}).", W - 2 * M - 1.0, size=14, color=TEXT)
+            deck.save(fig)
+
     # 10. scores by period
     def tilt(p):
         for comp, sign in [(f"{DEFAULT_SCORE} - sdf_weight", 1), (f"sdf_weight - {DEFAULT_SCORE}", -1)]:

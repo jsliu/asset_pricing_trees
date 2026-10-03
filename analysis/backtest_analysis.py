@@ -19,8 +19,8 @@ for reference) and rolling returns, IC and ICIR, cross-sectional R2 of returns o
 against EI), turnover, decay; each tree score's factor exposure, its correlation with the factor scores and the IC of
 its residual on them. Company data only: sector exposure and, when the optimiser backtests exist (BT_DIR), their R2 on
 the factor returns and the transfer coefficient of each score.
-The comparison table and the monthly returns go to the run's report folder (combined_scores_summary.csv,
-combined_scores_pnl.csv) and the combined scores to
+The comparison table, its by-period version and the monthly returns go to the run's report folder
+(combined_scores_summary.csv, combined_scores_by_period.csv, combined_scores_pnl.csv) and the combined scores to
 result/[<region>_]combined_scores[_<universe>][_<variant>].csv.
 
 The residual and hedged scores come from the score file when the backtest wrote them; otherwise they are computed
@@ -45,7 +45,7 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 from scipy.stats import ttest_rel
 
-from analysis.backtest_report import FEATURES, LABEL, REGION, RET_NAME, UNIVERSE, VARIANT
+from analysis.backtest_report import FEATURES, LABEL, REGION, RET_NAME, UNIVERSE, VARIANT, make_periods
 from backtest import r_squared
 from src.constants import DataPaths, factor_signs, parse_variant
 from src.functions import (calc_fac_ret, calc_turnover, calc_decay, calc_factor_exposure, grouped_exposure, summary,
@@ -234,6 +234,24 @@ for k in names:
     paired_t(ic['EI'], ic[f'EI + {k}'], f'IC, EI vs EI + {k}')
 
 # %%
+# ---- by period: IR and IC of EI and each combination, the gain over EI with its t ----
+periods = make_periods(sorted(months))
+rows = {}
+for p, (a, b) in periods.items():
+    in_p = lambda frame: frame[(frame.index >= pd.Timestamp(str(a))) & (frame.index <= pd.Timestamp(str(b)))]
+    r, c, g = in_p(pnl), in_p(ic), in_p(gain)
+    row = {f'IR|{col}': r[col].mean() / r[col].std() * np.sqrt(12) for col in cols_main}
+    row |= {f'IC|{col}': c[col].mean() for col in cols_main}
+    row |= {f'gain t|{k}': g[k].mean() / g[k].std() * np.sqrt(g[k].count()) for k in names}
+    row['months'] = len(r)
+    rows['Full sample' if p == 'Full' else p] = row
+by_period = pd.DataFrame(rows).T.rename_axis('period')
+print(f'\n==== {LABEL}: IR of EI and each combination by period ====')
+print(by_period[[f'IR|{c}' for c in cols_main]].round(2).to_string())
+print('\nIC by period')
+print(by_period[[f'IC|{c}' for c in cols_main]].round(3).to_string())
+
+# %%
 # ---- cross-sectional R2 of returns on the scores ----
 # characteristic files: the return at a date is the next month's; company data: as the earlier analysis did, the
 # return shifted by one month per stock
@@ -320,7 +338,8 @@ alpha = pd.concat([ei.rename('ei')] + [combined[k].rename(f'ei+{k.lower()}') for
 alpha.to_csv(paths.result_file('combined_scores', REGION, UNIVERSE, VARIANT))
 pnl_out = pnl[cols_main].copy()                        # monthly returns of EI and each combination, for the deck
 pnl_out.index = pnl_out.index.strftime('%Y%m%d').astype(int).rename('date')
-pnl_out.to_csv(report_dir / 'combined_scores_pnl.csv')
+by_period.to_csv(report_dir / 'combined_scores_by_period.csv')
+pnl_out.to_csv(report_dir / 'combined_scores_pnl.csv')               # written last: make_detail's marker
 print(f'Saved {report_dir / "combined_scores_summary.csv"} and {paths.result_file("combined_scores", REGION, UNIVERSE, VARIANT)}')
 
 # %%

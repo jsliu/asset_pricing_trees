@@ -17,6 +17,17 @@ Run from the project root:
     python make_detail.py --model largecap_val full --skip-existing       two models, only the missing analyses
     python make_detail.py --model GL@:vw --deck-only --png                a region's value-weighted run, deck only, with page previews
 
+The two ways of naming the same model ([REGION@] marks a region and can be left out without one; :variant is the run's
+file-name suffix, as in the result file names):
+    model                                       [REGION@][UNIVERSE][:variant]   file-name label
+    large cap, val                              largecap:val                    largecap_val
+    large cap, baseline                         largecap                        largecap
+    large cap, value-weighted slow d3 val       largecap:vw_slow3_val           largecap_vw_slow3_val
+    region GL, baseline                         GL@                             GL
+    region GL, value-weighted                   GL@:vw                          GL_vw
+    region GL, EI_sub trees, val                GL@:EI_sub_val                  GL_EI_sub_val
+e.g. python make_detail.py --model largecap:val is the same as python make_detail.py --model largecap_val.
+
 Company data (a region, no universe; the results are named [REGION_]kind[_variant], e.g. result/GL_ret_EI_sub_val.csv):
     python make_detail.py --model GL                                      region GL, default trees and pruning   (result/GL_ret.csv)
     python make_detail.py --model GL_EI_sub_val                           region GL, EI_sub trees, validated pruning
