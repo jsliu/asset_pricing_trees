@@ -428,9 +428,13 @@ def main():
     if len(specs) > len(COLORS):
         raise SystemExit(f"At most {len(COLORS)} runs fit in one comparison; got {len(specs)}")
 
+    # the same model in several regions: label each column by its region alone (GL, US, ...)
+    regions_only = all(r for r, _, _ in specs) and len({(u, v) for _, u, v in specs}) == 1
     runs = []
     for (region, universe, variant), color in zip(specs, COLORS):
         label, desc = describe(region, universe, variant)
+        if regions_only:
+            label = "All regions" if region == "ALL" else region
         d = load(region, universe, variant)
         if d is None:
             print(f"Skipping {label}: no report for {run_token(region, universe, variant)} (run analysis/backtest_report.py first)")
