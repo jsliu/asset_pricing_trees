@@ -8,7 +8,6 @@ import statsmodels.api as sm
 from itertools import product
 from tqdm import tqdm
 from joblib import Parallel, delayed
-from scipy.stats import norm
 
 from prune_trees import prune, to_pandas, factor_betas, residualize_portfolios
 from build_trees import prepare_data
@@ -16,17 +15,9 @@ from src.tree_scores import MIN_NODE_SIZE, calc_sharpe, score_stocks    # noqa: 
 from src.constants import DataPaths, Columns, Years, TREE_SETUPS, PRUNE_SETUPS, run_variant, factor_chars
 from src.functions import calc_fac_ret
 from src.preprocessing import read_backtest_data
-from src.score_hedging import HEDGE_MIN, HEDGE_WINDOW, hedge_ratios, neutral_scores, rebuilt_history
+from src.score_hedging import HEDGE_WINDOW, hedge_ratios, neutral_scores, rebuilt_history
 from src.utils import build_comb
 
-
-def rank_normalize(x):
-    n = len(x)
-
-    # equivalent to rank("min")
-    u = (x.rank(method="min") - 0.5) / n
-
-    return norm.ppf(u)
 
 def r_squared(X, y):
     X = sm.add_constant(X)
@@ -91,7 +82,7 @@ def run_backtest(region=None, universe=None, ret_name='gross_returns', start_yea
     'size_oriented_resid' - the residual of a cross-sectional regression of size_oriented_score on the factor scores
     (each factor characteristic rank-normalised that month) - and 'size_oriented_hedged' - the score's long/short
     positions minus their factor exposure, with hedge ratios estimated at each refit from the model's score rebuilt
-    over the previous HEDGE_WINDOW months - each with a rank-normalised version ('..._norm'). The hedged positions
+    over the previous HEDGE_WINDOW months (all there are, if fewer) - each with a rank-normalised version ('..._norm'). The hedged positions
     include the factor portfolios' stocks, so a date's rows are the scored stocks plus those; the hedge ratios of every
     refit are saved as the 'score_hedge_ratios' result file.
 
@@ -253,7 +244,7 @@ def run_backtest(region=None, universe=None, ret_name='gross_returns', start_yea
                 months = [m for m in score_dates if m < d][-HEDGE_WINDOW:]
                 refit_nodes = pd.Series(final_model.betas[final_best_model], index=final_model.feature_weights.index)
                 history = rebuilt_history(comb_by_date, ret_by_date, refit_nodes, None, months, [SCORE])
-                hedge = hedge_ratios(history[(SCORE, 'all')], factor_returns, HEDGE_MIN) if len(history) else None
+                hedge = hedge_ratios(history[(SCORE, 'all')], factor_returns) if len(history) else None
                 if hedge is not None:
                     refit_hedge.append(hedge.rename(d))
         else:

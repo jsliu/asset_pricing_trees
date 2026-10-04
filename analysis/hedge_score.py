@@ -5,7 +5,7 @@ portfolio the current model holds, over its training history.
 
 At each refit the SDF's betas come from the tree portfolios' past returns, and those portfolios re-sort the stocks
 into the nodes every month. This script does the same for the scores: with the node weights (beta) of the refit, it
-recomputes the scores (SCORES, backtest.score_stocks) in each of the previous HEDGE_WINDOW months (at least HEDGE_MIN)
+recomputes the scores (SCORES, backtest.score_stocks) in each of the previous HEDGE_WINDOW months (all there are, if fewer)
 from that month's stocks and characteristics, takes their score-weighted long/short returns - over all stocks and
 within each market-cap quintile - and regresses them on the factors. Only months before the refit are used.
 
@@ -33,7 +33,7 @@ from analysis.hedge_analysis import SCORE, build_positions, score_weights, hedge
 from build_trees import prepare_data
 from src.constants import Columns, DataPaths, TREE_SETUPS, factor_chars, parse_variant
 from src.preprocessing import read_backtest_data
-from src.score_hedging import HEDGE_MIN, HEDGE_WINDOW, rebuilt_history
+from src.score_hedging import HEDGE_WINDOW, enough_months, rebuilt_history
 from src.utils import build_comb
 
 SCORES = ['size_oriented_score', 'norm_score', 'sdf_weight']
@@ -42,7 +42,7 @@ SCORES = ['size_oriented_score', 'norm_score', 'sdf_weight']
 def refit_betas(refit, node_betas, combo_wei, comb_by_date, ret_by_date, bucket_by_date, factor_sets, dates):
     """Hedge ratios at one refit for every score, universe and specification (long rows), and the fit R2s."""
     months = [m for m in dates if m < refit and m in factor_sets['factors'].index][-HEDGE_WINDOW:]
-    if len(months) < HEDGE_MIN:
+    if not enough_months(len(months), factor_sets['factors'].shape[1]):
         return [], []
     hist = rebuilt_history(comb_by_date, ret_by_date, node_betas, combo_wei, months, SCORES, bucket_by_date)
     rows, fits = [], []
@@ -51,7 +51,7 @@ def refit_betas(refit, node_betas, combo_wei, comb_by_date, ret_by_date, bucket_
             if universe != 'all' and spec != 'factors':
                 continue
             both = pd.concat([y.rename('y'), facs], axis=1, join='inner').dropna()
-            if len(both) < HEDGE_MIN:
+            if not enough_months(len(both), facs.shape[1]):
                 continue
             fit = sm.OLS(both['y'], sm.add_constant(both.drop(columns='y'))).fit()
             rows += [{'refit': refit, 'score': score, 'universe': universe, 'spec': spec, 'factor': f, 'beta': v}

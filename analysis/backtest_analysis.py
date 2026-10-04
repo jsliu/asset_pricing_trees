@@ -12,7 +12,9 @@ the factor scores alone (EI):
     company data           the factor scores are the company factor scores as they are; EI is weighted with the
                            region's production weights (FACTOR_WEIGHTS) and each combination is
                            (1 - TREE_WEIGHT) x EI + TREE_WEIGHT x tree score
-The factors are the run's factor characteristics (factor_chars of its tree set-up, as in the backtest).
+EI's factors: for company data always the production factors (the keys of FACTOR_WEIGHTS), whatever tree set-up
+the run uses; for the characteristic files the run's factor characteristics (factor_chars of its tree set-up). The
+tree set-up's factors are the hedge factors of the residual and hedged scores, as in the backtest.
 
 Reported, for EI and each combination: performance (score-weighted long/short, with the SDF and each tree score alone
 for reference) and rolling returns, IC and ICIR, cross-sectional R2 of returns on the scores (with paired t-tests
@@ -90,6 +92,11 @@ def _analysis_args():
 
 ARGS = _analysis_args()
 COMPANY = REGION is not None
+# the factor scores EI is built from: for company data the production factors (FACTOR_WEIGHTS), whatever factors
+# the tree set-up uses; for the characteristic files the run's factors. The tree set-up's factors (FEATURES) stay
+# the hedge factors of the residual and hedged scores.
+EI_FACTORS = list(FACTOR_WEIGHTS[REGION]) if COMPANY else FEATURES
+READ = list(dict.fromkeys(EI_FACTORS + FEATURES))
 if ARGS.no_plots:
     plt.show = lambda *a, **k: plt.close('all')
 
@@ -98,11 +105,11 @@ def load_data():
     """The run's stock panel by (date, permno), with the company stock information (sectors) for a region."""
     stock_info = None
     if REGION == 'ALL':
-        data, _, stock_info = read_all_data(target=RET_NAME, ei_factors=FEATURES)
+        data, _, stock_info = read_all_data(target=RET_NAME, ei_factors=READ)
     elif COMPANY:
-        data, _, _, _, stock_info = read_ei_data(region_=REGION, target=RET_NAME, ei_factors=FEATURES)
+        data, _, _, _, stock_info = read_ei_data(region_=REGION, target=RET_NAME, ei_factors=READ)
     else:
-        data = read_backtest_data(FEATURES, RET_NAME, universe=UNIVERSE)
+        data = read_backtest_data(READ, RET_NAME, universe=UNIVERSE)
     data = data.swaplevel(0, 1).sort_index()
     if stock_info is not None:
         stock_info = stock_info.swaplevel(0, 1).sort_index()
@@ -113,8 +120,8 @@ def factor_score_panel(data):
     """The factor scores: the company scores as they are, or each characteristic rank-normalised within each month and
     oriented so that high is expected to pay (factor_signs)."""
     if COMPANY:
-        return data[FEATURES]
-    scores = data[FEATURES].groupby('date').transform(
+        return data[EI_FACTORS]
+    scores = data[EI_FACTORS].groupby('date').transform(
         lambda c: pd.Series(np.asarray(rank_normalise(c, cutoff_std=3.5), dtype=float), index=c.index))
     return scores * pd.Series(factor_signs(parse_variant(VARIANT)[1]))
 
@@ -152,7 +159,7 @@ def tree_score_panel(data):
 def combine(factor_scores, tree):
     """EI and EI + each tree score: equal-weighted (characteristic files) or production-weighted (company data)."""
     if COMPANY:
-        w = pd.Series(FACTOR_WEIGHTS[REGION]).reindex(FEATURES).fillna(0)
+        w = pd.Series(FACTOR_WEIGHTS[REGION])[EI_FACTORS]
         ei = factor_scores.fillna(0) @ w
         combined = {k: (1 - TREE_WEIGHT) * ei + TREE_WEIGHT * tree[k].fillna(0) for k in tree}
     else:
@@ -199,8 +206,8 @@ factor_scores, tree, ret = factor_scores.loc[months], tree.loc[months], ret.loc[
 ei, combined = combine(factor_scores, tree)
 names = list(tree.columns)
 weighting = (f'production weights, tree score {TREE_WEIGHT:.0%}' if COMPANY else
-             f'equal weights, tree score 1/{len(FEATURES) + 1}')
-print(f'{LABEL}: {len(months)} months {months.min()}-{months.max()}; {len(FEATURES)} factors; {weighting}; '
+             f'equal weights, tree score 1/{len(EI_FACTORS) + 1}')
+print(f'{LABEL}: {len(months)} months {months.min()}-{months.max()}; {len(EI_FACTORS)} factors; {weighting}; '
       f'tree scores {names}')
 
 # %%
@@ -257,10 +264,10 @@ print(by_period[[f'IC|{c}' for c in cols_main]].round(3).to_string())
 # return shifted by one month per stock
 r2_ret = ret.groupby('permno').shift() if COMPANY else ret
 panel = pd.concat([factor_scores, tree, r2_ret.rename('r2_ret')], axis=1)
-r2 = {'EI': panel.dropna(subset=FEATURES + ['r2_ret']).groupby('date').apply(lambda x: r_squared(x[FEATURES], x['r2_ret']))}
+r2 = {'EI': panel.dropna(subset=EI_FACTORS + ['r2_ret']).groupby('date').apply(lambda x: r_squared(x[EI_FACTORS], x['r2_ret']))}
 for k in names:
-    r2[f'EI + {k}'] = panel.dropna(subset=FEATURES + [k, 'r2_ret']).groupby('date').apply(
-        lambda x: r_squared(x[FEATURES + [k]], x['r2_ret']))
+    r2[f'EI + {k}'] = panel.dropna(subset=EI_FACTORS + [k, 'r2_ret']).groupby('date').apply(
+        lambda x: r_squared(x[EI_FACTORS + [k]], x['r2_ret']))
 r2 = as_dates(pd.DataFrame(r2))
 legend_with_means(r2.plot(title=f'{LABEL}: R2'), r2, '{:.4f}')
 plt.show()
@@ -280,7 +287,7 @@ plt.show()
 # %%
 # ---- the tree scores against the factors: exposure, correlation, residual IC ----
 exposure = {k: pd.concat([factor_scores, tree[k]], axis=1).dropna(subset=[k]).groupby('date').apply(
-    lambda x: x[FEATURES].apply(lambda y: calc_factor_exposure(x[k], factor=y))) for k in names}
+    lambda x: x[EI_FACTORS].apply(lambda y: calc_factor_exposure(x[k], factor=y))) for k in names}
 avg_exposure = pd.DataFrame({k: e.mean() for k, e in exposure.items()})
 avg_exposure.plot(kind='bar', title=f'{LABEL}: Average factor exposure of each tree score')
 plt.show()
@@ -290,12 +297,12 @@ for k, e in exposure.items():
     legend_with_means(e.plot(title=f'{LABEL}: Factor exposure of {k}'), e, '{:.2f}')
     plt.show()
 corr = pd.DataFrame({k: pd.concat([factor_scores, tree[k]], axis=1).dropna(subset=[k]).groupby('date').apply(
-    lambda x: x[FEATURES].corrwith(x[k])).mean() for k in names})
+    lambda x: x[EI_FACTORS].corrwith(x[k])).mean() for k in names})
 print('Mean correlation of each tree score with the factor scores')
 print(corr.round(3))
 resid_ic = {}
 for k in names:
-    resid = get_residuals(pd.concat([factor_scores, tree[k]], axis=1).dropna(subset=[k]), factor_names=FEATURES,
+    resid = get_residuals(pd.concat([factor_scores, tree[k]], axis=1).dropna(subset=[k]), factor_names=EI_FACTORS,
                           return_name=k, date_name='date')
     resid_ic[k] = pd.Series({'IC': ic_series(tree[k], ret).mean(), 'residual IC': ic_series(resid, ret).mean()})
 print('IC of each tree score and of its residual on the factor scores')
@@ -350,8 +357,8 @@ if bt_base is not None and Path(f'{bt_base}_summary.xlsx').exists():
     bt_rets = as_dates(bt_rets.loc[bt_rets.index.isin(months)])
     factor_pnl = as_dates(calc_fac_ret(pd.concat([factor_scores, tree], axis=1), data[RET_NAME].loc[months],
                                        date_col='date', score_weighted=True))
-    r2_ts = pd.DataFrame({m: {'EI': r_squared(factor_pnl[FEATURES], bt_rets[m]),
-                              **{f'EI + {k}': r_squared(factor_pnl[FEATURES + [k]], bt_rets[m]) for k in names}}
+    r2_ts = pd.DataFrame({m: {'EI': r_squared(factor_pnl[EI_FACTORS], bt_rets[m]),
+                              **{f'EI + {k}': r_squared(factor_pnl[EI_FACTORS + [k]], bt_rets[m]) for k in names}}
                           for m in bt_rets.columns}).T
     print('R2 of each optimiser backtest on the factor returns')
     print(r2_ts.round(3))

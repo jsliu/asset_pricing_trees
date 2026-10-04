@@ -18,7 +18,9 @@ from src.functions import _get_weights, rank_normalise
 from src.tree_scores import score_stocks
 
 MIN_STOCKS = 30                     # fewest scored stocks for a month's long/short
-HEDGE_WINDOW, HEDGE_MIN = 120, 60   # months of rebuilt score history the hedge ratios are estimated on
+# months of rebuilt score history the hedge ratios are estimated on: the last HEDGE_WINDOW, or all there are when
+# the data is shorter (e.g. a region whose history starts a few years before the backtest)
+HEDGE_WINDOW = 120
 
 
 def score_weights(s):
@@ -60,10 +62,15 @@ def rebuilt_history(comb_by_date, ret_by_date, node_betas, combo_wei, months, sc
     return pd.DataFrame(out).T
 
 
-def hedge_ratios(y, factors, min_months):
+def enough_months(n, n_factors):
+    """Whether n months can estimate hedge ratios on n_factors factors: more months than coefficients."""
+    return n > n_factors + 1             # ponytail: any short history is used; few months give noisy ratios
+
+
+def hedge_ratios(y, factors):
     """Factor betas (regression with intercept) of the monthly return series y, or None with too few months."""
     both = pd.concat([y.rename('y'), factors], axis=1, join='inner').dropna()
-    if len(both) < min_months:
+    if not enough_months(len(both), factors.shape[1]):
         return None
     return sm.OLS(both['y'], sm.add_constant(both.drop(columns='y'))).fit().params.drop('const')
 
