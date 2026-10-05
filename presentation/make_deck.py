@@ -554,6 +554,7 @@ def build(d, path, preview_dir=None):
         comb_pnl = pd.read_csv(rep_dir / "combined_scores_pnl.csv", index_col=0)
         trees = [k for k in comb.index if k != "EI alone"]
         palette = dict(zip(["Tree", "Resid", "Hedged", "Original"], ["#2a78d6", "#eda100", "#eb6834", "#1baf7a"]))
+        show = lambda k: "Score" if k == "Tree" else k          # noqa: E731 (the files call the score 'Tree')
         fig = deck.slide("Adding to the factors", "Each tree score combined with the existing factor scores")
         ax = chart(fig, M + 0.2, 2.45, 6.9, 4.1)
         cum = comb_pnl.cumsum() * 100
@@ -562,12 +563,12 @@ def build(d, path, preview_dir=None):
         for k in trees:
             col = f"EI + {k}"
             ax.plot(cum.index, cum[col], color=palette.get(k, "#4a3aa7"), linewidth=1.8,
-                    label=f"+ {k} ({cum[col].iloc[-1]:.0f}%)")
+                    label=f"+ {show(k)} ({cum[col].iloc[-1]:.0f}%)")
         ax.set_ylabel("Cumulative return, % (sum of monthly)")
         ax.legend(loc="upper left", fontsize=13)
         rows = [["EI alone", num(comb.loc["EI alone", "IR, EI + tree score"]), "", num(comb.loc["EI alone", "IC"], "{:.3f}"),
                  num(comb.loc["EI alone", "ICIR"]), f"{comb.loc['EI alone', 'turnover']:.0%}"]]
-        rows += [[f"+ {k}", num(comb.loc[k, "IR, EI + tree score"]),
+        rows += [[f"+ {show(k)}", num(comb.loc[k, "IR, EI + tree score"]),
                   f"{num(comb.loc[k, 'IR gain over EI'], '{:+.2f}')} ({comb.loc[k, 'gain t-stat']:.1f})",
                   num(comb.loc[k, "IC"], "{:.3f}"), num(comb.loc[k, "ICIR"]), f"{comb.loc[k, 'turnover']:.0%}"]
                  for k in trees]
@@ -578,17 +579,18 @@ def build(d, path, preview_dir=None):
                      if REGION is not None else
                      f"the factor scores and the tree score are averaged with equal weights "
                      f"(tree score 1/{len(FEATURES) + 1})")
-        text(fig, tx, y - 0.25, f"EI: the {len(FEATURES)} existing factor scores; {weighting}. IR and gain: the "
+        text(fig, tx, y - 0.25, (f"EI: the {len(FEATURES)} existing factor scores" if REGION is None else "EI: the production factor scores")
+             + f"; {weighting}. IR and gain: the "
              "score-weighted long/short's information ratio and its rise over EI (t of the monthly difference). "
-             "Tree, Resid, Hedged, Original: the score, its residual on the factor scores, its factor-hedged positions "
+             "Score, Resid, Hedged, Original: the score, its residual on the factor scores, its factor-hedged positions "
              "and the original score, all rank-normalised.", tw, size=11, color=MUTED)
         best = comb.loc[trees, "IR gain over EI"].idxmax()
-        text(fig, M, 1.85, f"What it shows: every tree score adds to the factors, and {best.lower()} adds the most "
+        text(fig, M, 1.85, f"What it shows: every tree score adds to the factors, and {show(best).lower()} adds the most "
              f"(IR {num(comb.loc['EI alone', 'IR, EI + tree score'])} → {num(comb.loc[best, 'IR, EI + tree score'])}, "
              f"IC {num(comb.loc['EI alone', 'IC'], '{:.3f}')} → {num(comb.loc[best, 'IC'], '{:.3f}')}); turnover moves "
              f"from {comb.loc['EI alone', 'turnover']:.0%} to {comb.loc[best, 'turnover']:.0%}."
              if (comb.loc[trees, "IR gain over EI"] > 0).all() else
-             f"What it shows: {best.lower()} adds the most to the factors "
+             f"What it shows: {show(best).lower()} adds the most to the factors "
              f"(IR {num(comb.loc['EI alone', 'IR, EI + tree score'])} → {num(comb.loc[best, 'IR, EI + tree score'])}); "
              f"{', '.join(k.lower() for k in trees if comb.loc[k, 'IR gain over EI'] <= 0)} do not.",
              W - 2 * M, size=14, color=TEXT)
@@ -607,13 +609,13 @@ def build(d, path, preview_dir=None):
                 fig.text((gx + 0.12) / W, 7.05 / H, label_, fontsize=14, weight="bold", color=ACCENT, va="bottom")
                 fig.add_artist(Line2D([(gx + 0.1) / W, (gx + (W - 2 * M) * sum(widths_bp[first:first + len(cols)]) - 0.1) / W],
                                       [7.0 / H, 7.0 / H], color=ACCENT, linewidth=1))
-            heads = ["Period"] + ["EI"] + [f"+ {k}" for k in trees]
+            heads = ["Period"] + ["EI"] + [f"+ {show(k)}" for k in trees]
             y = table(fig, M, 6.9, W - 2 * M, heads + heads[1:], rows, widths_bp, size=13, row_h=0.5, bold=(0,))
             dec = [p_ for p_ in bp.index if p_ != "Full sample"]
             best = comb.loc[trees, "IR gain over EI"].idxmax()
             wins = [p_ for p_ in dec if bp.loc[p_, f"IR|EI + {best}"] > bp.loc[p_, "IR|EI"]]
             last_p = dec[-1]
-            text(fig, M, y - 0.3, f"Information ratio and IC of the score-weighted long/short, by period. EI + {best.lower()} beats "
+            text(fig, M, y - 0.3, f"Information ratio and IC of the score-weighted long/short, by period. EI + {show(best).lower()} beats "
                  f"EI in {len(wins)} of {len(dec)} periods; in the {last_p} its IR is "
                  f"{num(bp.loc[last_p, f'IR|EI + {best}'])} against {num(bp.loc[last_p, 'IR|EI'])} "
                  f"(t of the monthly gain {bp.loc[last_p, f'gain t|{best}']:.1f}).", W - 2 * M - 1.0, size=14, color=TEXT)
