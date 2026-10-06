@@ -139,7 +139,9 @@ def plot_spanning_multi(ax, ds):
     x = np.arange(len(periods))
     w = 0.8 / (len(ds) + 1)
     base = ds[0]['spanning'].loc[periods, 'factors only SR'].to_numpy(dtype=float)
-    ax.bar(x - 0.4 + w / 2, base, width=w, color="#b9c2cf", edgecolor=SURFACE, linewidth=1.5, label='Factors only')
+    bars = ax.bar(x - 0.4 + w / 2, base, width=w, color="#b9c2cf", edgecolor=SURFACE, linewidth=1.5, label='Factors only')
+    for rect, v in zip(bars, base):
+        _value_label(ax, rect, v, "{:.2f}", fontsize=13)
     top = base.max()
     for i, d in enumerate(ds):
         vals = d['spanning'].loc[periods, 'hedged SR'].to_numpy(dtype=float)

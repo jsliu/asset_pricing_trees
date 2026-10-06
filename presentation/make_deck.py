@@ -378,8 +378,8 @@ def build(d, path, preview_dir=None):
     ds = list(hedged.values())
     if ds:
         fig = deck.slide("The hedged scores", "The scores with their factor exposure removed")
-        msc.plot_hedged_cumulative_multi(chart(fig, M + 0.2, 3.7, 7.4, 3.5), ds)
-        msc.plot_spanning_multi(chart(fig, M + 7.9, 3.7, 7.4, 3.5), ds)
+        msc.plot_hedged_cumulative_multi(chart(fig, M + 0.5, 3.7, 6.4, 3.5), ds)
+        msc.plot_spanning_multi(chart(fig, W - M - 6.4, 3.7, 6.4, 3.5), ds)   # right edge on the margin
 
         def gain(h_, period):
             r = h_['spanning'].loc[period]
@@ -573,7 +573,7 @@ def build(d, path, preview_dir=None):
                   num(comb.loc[k, "IC"], "{:.3f}"), num(comb.loc[k, "ICIR"]), f"{comb.loc[k, 'turnover']:.0%}"]
                  for k in trees]
         tx, tw = 7.9, W - M - 7.9
-        y = table(fig, tx, 6.9, tw, ["Score", "IR", "Gain (t)", "IC", "ICIR", "Turnover"], rows,
+        y = table(fig, tx, 6.9, tw, ["Score", "IR", "Gain (Return Diff t)", "IC", "ICIR", "Turnover"], rows,
                   [0.22, 0.13, 0.22, 0.15, 0.13, 0.15], size=14, row_h=0.5, bold=(0,))
         weighting = ("each combination is 80% the production-weighted factor scores and 20% the tree score"
                      if REGION is not None else

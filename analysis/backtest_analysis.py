@@ -161,6 +161,9 @@ def combine(factor_scores, tree):
     if COMPANY:
         w = pd.Series(FACTOR_WEIGHTS[REGION])[EI_FACTORS]
         ei = factor_scores.fillna(0) @ w
+        # rank-normalised each month like the tree scores, so the (1 - TREE_WEIGHT) / TREE_WEIGHT split is on one scale
+        ei = ei.groupby('date').transform(
+            lambda c: pd.Series(np.asarray(rank_normalise(c, cutoff_std=3.5), dtype=float), index=c.index))
         combined = {k: (1 - TREE_WEIGHT) * ei + TREE_WEIGHT * tree[k].fillna(0) for k in tree}
     else:
         ei = factor_scores.mean(axis=1)
