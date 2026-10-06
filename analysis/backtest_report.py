@@ -55,7 +55,7 @@ FEATURES = factor_chars(parse_variant(VARIANT)[1])   # characteristics of the ru
 EQUAL_WEIGHTED = parse_variant(VARIANT)[0]         # market adjustment of the run (backtest.py)
 LABEL = DataPaths().label(REGION, UNIVERSE, VARIANT)
 RET_NAME = 'gross_returns' if UNIVERSE is None else 'ret'
-SCORES = ['sdf_weight', 'size_oriented_score', 'norm_score']
+SCORES = ['sdf_weight', 'size_oriented_score', 'final_score_norm']
 PERIODS = None                  # None = decades, or {'name': (start, end)} with YYYYMMDD ints
 N_SIZE_BUCKETS = 5              # market-cap buckets (quintiles) for the size breakdown
 NW_LAGS = 6                     # Newey-West lags for alpha t-stats

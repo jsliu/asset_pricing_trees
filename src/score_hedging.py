@@ -93,17 +93,19 @@ def factor_scores(chars):
     return exposures, weights
 
 
-def neutral_scores(s, chars, h=None, name='size_oriented'):
+def neutral_scores(s, chars, h=None, name='size_oriented', resid=True):
     """
     For one month's scores s (indexed by permno) and characteristics chars (stocks x factors): the residual score and,
     with hedge ratios h (a Series over the factors), the hedged score's positions, each with a rank-normalised version
     (cutoff +-3.5). Columns <name>_resid(_norm) and <name>_hedged(_norm); the hedged positions cover the factor
-    portfolios' stocks as well, so their rows are the union of both.
+    portfolios' stocks as well, so their rows are the union of both. resid=False leaves the residual out.
     """
     exposures, weights = factor_scores(chars)
-    resid = residual_score(s, exposures)
-    out = {f'{name}_resid': resid,
-           f'{name}_resid_norm': pd.Series(np.asarray(rank_normalise(resid, cutoff_std=3.5), dtype=float), index=resid.index)}
+    out = {}
+    if resid:
+        r = residual_score(s, exposures)
+        out[f'{name}_resid'] = r
+        out[f'{name}_resid_norm'] = pd.Series(np.asarray(rank_normalise(r, cutoff_std=3.5), dtype=float), index=r.index)
     if h is not None:
         stocks = s.index.union(weights.index)
         hedged = (score_weights(s).reindex(stocks).fillna(0)

@@ -59,7 +59,7 @@ TREE_SCORES = {                                        # name in the tables -> c
     'Tree': 'size_oriented_norm',                      # the score, rank-normalised
     'Resid': 'size_oriented_resid_norm',               # its residual on the factor scores
     'Hedged': 'size_oriented_hedged_norm',             # its factor-hedged positions
-    'Original': 'norm_score',                          # the original score
+    'Original': 'final_score_norm',                          # the original score
 }
 # company data: production weights of the factor scores, by region, and the tree score's weight in a combination
 FACTOR_WEIGHTS = {

@@ -36,7 +36,7 @@ from src.preprocessing import read_backtest_data
 from src.score_hedging import HEDGE_WINDOW, enough_months, rebuilt_history
 from src.utils import build_comb
 
-SCORES = ['size_oriented_score', 'norm_score', 'sdf_weight']
+SCORES = ['size_oriented_score', 'final_score_norm', 'sdf_weight']
 
 
 def refit_betas(refit, node_betas, combo_wei, comb_by_date, ret_by_date, bucket_by_date, factor_sets, dates):

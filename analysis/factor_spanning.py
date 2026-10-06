@@ -14,7 +14,7 @@ Three questions are answered:
                          improves its Sharpe (Jobson-Korkie/Memmel t-test)  -> signal_spanning_sharpe.csv
     3. History           the monthly hedged-score return                    -> signal_hedged_monthly.csv
 The same is done for the other stock scores in SCORES (the original score and sdf_weight), saved with the score's
-name added, e.g. signal_spanning_sharpe_norm_score.csv (see output_name). For the default score also:
+name added, e.g. signal_spanning_sharpe_final_score_norm.csv (see output_name). For the default score also:
     6. By size           the hedged positions' return by the size quintile of the stocks held, and the score
                          built and hedged within each quintile   -> signal_hedged_by_size.csv (+ _monthly.csv)
 
@@ -52,7 +52,7 @@ def _run_args():
     return args.region, universe, args.variant
 
 
-SCORES = ['size_oriented_score', 'norm_score', 'sdf_weight']     # the first is the default score
+SCORES = ['size_oriented_score', 'final_score_norm', 'sdf_weight']     # the first is the default score
 
 
 def output_name(stem, score):

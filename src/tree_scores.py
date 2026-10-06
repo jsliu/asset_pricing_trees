@@ -196,7 +196,7 @@ def score_stocks(comb_d, node_betas, combo_wei=None):
     Stock scores on one date from the nodes held by the SDF (node_betas) and, if given, by the
     original score (combo_wei); both are Series indexed by (tree_key, port_col, node_id).
 
-    final_score/norm_score: original score, node weight x geometric mean of market-wide characteristic ranks.
+    final_score/final_score_norm: original score, node weight x geometric mean of market-wide characteristic ranks.
     sdf_weight: the stock's weight in the SDF, sum over nodes of beta x the stock's weight in the node.
     size_oriented_score: the same node weights beta, spread inside each node in proportion to
         (weight in node x oriented_score), so each node still totals beta but the stocks sitting most
@@ -204,7 +204,7 @@ def score_stocks(comb_d, node_betas, combo_wei=None):
     size_oriented_norm: size_oriented_score rank-normalised like the factor scores (see _normalise_scores).
 
     Every stock of the date's universe (comb_d) is returned; sdf_weight and size_oriented_score are 0 for
-    stocks in no held node, final_score/norm_score are null for stocks the original score does not cover.
+    stocks in no held node, final_score/final_score_norm are null for stocks the original score does not cover.
     """
     combo_wei = pd.Series(dtype=float) if combo_wei is None else combo_wei
     node_keys = list(dict.fromkeys(
@@ -254,7 +254,7 @@ def score_stocks(comb_d, node_betas, combo_wei=None):
     final_df = comb_d.select(Columns.id_col)
     if not dfs:
         return _normalise_scores(final_df.with_columns(
-            pl.lit(None, pl.Float64).alias("final_score"), pl.lit(None, pl.Float64).alias("norm_score"),
+            pl.lit(None, pl.Float64).alias("final_score"), pl.lit(None, pl.Float64).alias("final_score_norm"),
             pl.lit(0.0).alias("sdf_weight"), pl.lit(0.0).alias("size_oriented_score"),
         ))
 
@@ -271,7 +271,7 @@ def score_stocks(comb_d, node_betas, combo_wei=None):
     )
     n = old.height
     u = ((old["final_score"].rank("min") - 0.5) / n).to_numpy()
-    old = old.with_columns(pl.Series("norm_score", norm.ppf(u), dtype=pl.Float64))
+    old = old.with_columns(pl.Series("final_score_norm", norm.ppf(u), dtype=pl.Float64))
 
     final_df = (
         final_df

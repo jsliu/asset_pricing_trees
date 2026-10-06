@@ -42,13 +42,20 @@ def _market_adjusted_returns(trees, d, columns):
 
 
 SCORE = 'size_oriented_score'      # the score the residual and hedged versions are made of
+# the scores with a factor-hedged version: score -> prefix of its columns (<prefix>_hedged, <prefix>_hedged_norm);
+# SCORE also gets the residual (size_oriented_resid)
+HEDGED = {SCORE: 'size_oriented', 'final_score': 'final_score', 'sdf_weight': 'sdf_weight'}
 
 
-def _with_neutral_scores(final_df, chars, h):
-    """final_df (one date's stock scores) with the residual and, given hedge ratios h, the hedged score added
-    (src.score_hedging.neutral_scores); stocks only in the factor portfolios join with the other scores empty."""
-    s = final_df.select(Columns.id_col, SCORE).to_pandas().set_index(Columns.id_col)[SCORE].dropna()
-    extra = neutral_scores(s, chars, h).rename_axis(Columns.id_col).reset_index()
+def _with_neutral_scores(final_df, chars, hedges):
+    """final_df (one date's stock scores) with the residual of SCORE and, given each score's hedge ratios (hedges:
+    score -> ratios or None), the hedged scores added (src.score_hedging.neutral_scores); stocks only in the factor
+    portfolios join with the other scores empty."""
+    scores = final_df.select(Columns.id_col, *HEDGED).to_pandas().set_index(Columns.id_col)
+    extra = pd.concat([neutral_scores(scores[sc].dropna(), chars, hedges.get(sc), name=prefix, resid=sc == SCORE)
+                       for sc, prefix in HEDGED.items()
+                       if sc == SCORE or (hedges.get(sc) is not None and scores[sc].notna().any())], axis=1)
+    extra = extra.rename_axis(Columns.id_col).reset_index()
     extra = pl.from_pandas(extra).with_columns(pl.col(Columns.id_col).cast(final_df.schema[Columns.id_col]))
     return final_df.join(extra, on=Columns.id_col, how='full', coalesce=True)
 
@@ -74,7 +81,7 @@ def run_backtest(region=None, universe=None, ret_name='gross_returns', start_yea
     market-adjusted returns before residualisation.
 
     stk_score has the stock scores of score_stocks() per date for every stock in the universe:
-    'final_score'/'norm_score' (original), 'sdf_weight' (sum(sdf_weight x market-adjusted return)
+    'final_score'/'final_score_norm' (original), 'sdf_weight' (sum(sdf_weight x market-adjusted return)
     reproduces 'Return_mkt_adj'), 'size_oriented_score' (SDF node weights tilted towards the stocks most
     firmly inside each node) and 'size_oriented_norm' (size_oriented_score rank-normalised to combine
     with factor scores).
@@ -84,7 +91,8 @@ def run_backtest(region=None, universe=None, ret_name='gross_returns', start_yea
     positions minus their factor exposure, with hedge ratios estimated at each refit from the model's score rebuilt
     over the previous HEDGE_WINDOW months (all there are, if fewer) - each with a rank-normalised version ('..._norm'). The hedged positions
     include the factor portfolios' stocks, so a date's rows are the scored stocks plus those; the hedge ratios of every
-    refit are saved as the 'score_hedge_ratios' result file.
+    refit are saved as the 'score_hedge_ratios' result file. 'final_score_hedged' and 'sdf_weight_hedged' (each with
+    '_norm') are the original score and the SDF weights hedged the same way, from their own rebuilt histories.
 
     The SDF node weights (beta) of every refit are saved as the 'node_betas' result file (DataPaths.result_file), and
     the node weights the original score uses (from calc_sharpe) as the 'combo_weights' result file, so that the scores
@@ -181,7 +189,7 @@ def run_backtest(region=None, universe=None, ret_name='gross_returns', start_yea
         for series in ret_by_date.values():                   # build the index lookups once
             assert series.index.is_unique
         score_dates = sorted(comb_by_date)
-    hedge, refit_hedge = None, []
+    hedges, refit_hedge = {}, []
 
     # one worker pool reused across dates; each worker runs its grid search single-threaded
     parallel = Parallel(n_jobs=-1)
@@ -243,10 +251,10 @@ def run_backtest(region=None, universe=None, ret_name='gross_returns', start_yea
                 # hedge ratios of the score this model gives, from its rebuilt history over the months before d
                 months = [m for m in score_dates if m < d][-HEDGE_WINDOW:]
                 refit_nodes = pd.Series(final_model.betas[final_best_model], index=final_model.feature_weights.index)
-                history = rebuilt_history(comb_by_date, ret_by_date, refit_nodes, None, months, [SCORE])
-                hedge = hedge_ratios(history[(SCORE, 'all')], factor_returns) if len(history) else None
-                if hedge is not None:
-                    refit_hedge.append(hedge.rename(d))
+                history = rebuilt_history(comb_by_date, ret_by_date, refit_nodes, final_combo_wei, months, list(HEDGED))
+                hedges = {sc: hedge_ratios(history[(sc, 'all')], factor_returns) if len(history) else None
+                          for sc in HEDGED}
+                refit_hedge += [h.rename((d, sc)) for sc, h in hedges.items() if h is not None]
         else:
             # reuse the last fit: take this date's returns of the portfolios the final model was fitted on
             test_portfolios = pd.concat(
@@ -261,7 +269,7 @@ def run_backtest(region=None, universe=None, ret_name='gross_returns', start_yea
         comb_d = comb_by_date.get(d)
         final_df = score_stocks(comb_d, node_betas, final_combo_wei) if comb_d is not None else pl.DataFrame()
         if neutral and comb_d is not None and d in data_by_date:
-            final_df = _with_neutral_scores(final_df, data_by_date[d][features], hedge)
+            final_df = _with_neutral_scores(final_df, data_by_date[d][features], hedges)
 
         final_df = final_df.with_columns(
             pl.lit(d).alias(Columns.date_col)
@@ -280,7 +288,8 @@ def run_backtest(region=None, universe=None, ret_name='gross_returns', start_yea
     pd.concat(refit_betas).to_csv(paths.result_file('node_betas', region, universe, variant), index=False)
     pd.concat(refit_combo).to_csv(paths.result_file('combo_weights', region, universe, variant), index=False)
     if refit_hedge:
-        pd.DataFrame(refit_hedge).rename_axis('refit_date').to_csv(
+        pd.DataFrame(refit_hedge, index=pd.MultiIndex.from_tuples([h.name for h in refit_hedge],
+                                                                  names=['refit_date', 'score'])).to_csv(
             paths.result_file('score_hedge_ratios', region, universe, variant))
 
     rets = rets.dropna()

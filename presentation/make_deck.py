@@ -323,7 +323,7 @@ def build(d, path, preview_dir=None):
     # 8. score definitions
     fig = deck.slide("Stock scores", "Three ways to turn node weights into stock scores")
     defs = [
-        ("norm_score", "Node weight × geometric mean of the stock's market-wide characteristic ranks, rank-normalised.", "Original score"),
+        ("final_score_norm", "Node weight × geometric mean of the stock's market-wide characteristic ranks, rank-normalised.", "Original score"),
         ("sdf_weight", "Node weight β spread over the node's stocks by their weight in the node, summed over nodes. Holding it reproduces Return_mkt_adj.", "The SDF portfolio"),
         (SCORE_LABEL, "The same β per node, tilted towards the stocks deepest inside the node (ranks within the parent node, in the split's direction). size_oriented_score in the result files.", "Default score"),
         ("score, normalised", "The score rank-normalised to ±3.5; stocks in no node sit at a neutral score.", "Combining with factors"),
@@ -360,7 +360,7 @@ def build(d, path, preview_dir=None):
         ["ICIR"] + [num(full[s]["ICIR"]) for s in scores],
         ["Factor R²"] + [num(full[s]["factor R2"]) for s in scores],
     ]
-    short = {"size_oriented_score": "Score", "sdf_weight": "SDF weight", "norm_score": "Original"}
+    short = {"size_oriented_score": "Score", "sdf_weight": "SDF weight", "final_score_norm": "Original"}
     y = table(fig, 9.9, 6.9, W - M - 9.9, ["All stocks"] + [short[s] for s in scores], rows,
               [0.31] + [0.23] * len(scores), size=13)
     text(fig, 9.9, y - 0.25, "Score-weighted long/short (100% long, 100% short) on same-month returns, before costs.",

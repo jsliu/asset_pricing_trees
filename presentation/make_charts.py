@@ -24,8 +24,8 @@ SURFACE = "#f7f6f2"
 INK, INK2, GRID = "#1f2a3d", "#556070", "#dcdad2"
 CAT = ["#2a78d6", "#eb6834", "#1baf7a"]                      # categorical slots 1-3
 ORD = ["#86b6ef", "#5598e7", "#2a78d6", "#1c5cab", "#104281"]  # ordinal blue ramp, small -> large
-SCORES = ["size_oriented_score", "sdf_weight", "norm_score"]
-SCORE_NAMES = {"size_oriented_score": "score", "sdf_weight": "sdf_weight", "norm_score": "norm_score (original)"}
+SCORES = ["size_oriented_score", "sdf_weight", "final_score_norm"]
+SCORE_NAMES = {"size_oriented_score": "score", "sdf_weight": "sdf_weight", "final_score_norm": "final_score_norm (original)"}
 SDF_NAMES = {"Return": "Factor-hedged (Return)", "Return_mkt_adj": "Market-adjusted (Return_mkt_adj)"}
 # run names on the slides
 UNIVERSE_LABELS = {"full": "Full", "largecap": "Large cap", "largecap001": "Large cap 0.01%"}
