@@ -3,9 +3,11 @@
 Does the factor-hedged stock score give an alpha source independent of the characteristic factors?
 
 The raw score's long/short is largely the factors it is built from (factor R2 ~ 0.75), so this analysis works with
-the *hedged* score: the score's long/short minus its factor exposure. The hedge ratios are estimated at each refit the
-way the SDF's are, from the model's own score rebuilt over the previous 10 years (analysis/hedge_score.py, which
-saves them to hedge_betas_rebuilt.csv; run it first). That leaves the part of the score the factors do not explain.
+the *hedged* score: the score's long/short minus its factor exposure, as the backtest writes it (the score file's
+size_oriented_hedged, final_score_hedged and sdf_weight_hedged positions; hedge ratios estimated at each refit the
+way the SDF's are, from the model's own score rebuilt over the previous 10 years). That leaves the part of the score
+the factors do not explain. The hedges with size and beta added (5.) and within each size quintile (6.) use the
+ratios of analysis/hedge_score.py (hedge_betas_rebuilt.csv; run it first).
 Three questions are answered:
 
     1. Standalone        Sharpe ratio, return, alpha against the factors (which is now its own return), the residual
@@ -147,6 +149,22 @@ def extra_factors(region, universe, variant=None):
 HEDGE_SPECS = {'factors': [], '+ size': ['size'], '+ size + beta': ['size', 'beta']}
 
 
+# the backtest's hedged positions of each score (columns of the score file)
+HEDGED_COL = {'size_oriented_score': 'size_oriented_hedged', 'final_score_norm': 'final_score_hedged',
+              'sdf_weight': 'sdf_weight_hedged'}
+
+
+def backtest_hedged(p, score):
+    """(monthly return, stock positions) of the score's factor-hedged positions as backtest.py wrote them, over the
+    run's dates; None when the score file has no such column (a backtest from before it was added)."""
+    col = HEDGED_COL[score]
+    if col not in pd.read_csv(p['scores_file'], nrows=0).columns:
+        return None
+    w = pd.read_csv(p['scores_file'], usecols=['date', 'permno', col]).set_index(['date', 'permno'])[col].dropna()
+    w = w[w.index.get_level_values('date').isin(p['dates'])]
+    return (w * p['ret'].reindex(w.index)).groupby('date').sum(), w
+
+
 def rebuilt_betas(out_dir, score, universe='all', spec='factors'):
     """Hedge ratios per refit (refit date x factor) that analysis/hedge_score.py estimated from each model's rebuilt
     score history, for a score, a universe ('all' or a size quintile) and a hedge specification."""
@@ -178,18 +196,18 @@ if __name__ == '__main__':
                     pd.concat([p['fw'], fw_extra[added]], axis=1) if added else p['fw'])
              for spec, added in HEDGE_SPECS.items() if all(a in extra_rets for a in added)}
     for score in SCORES:
-        # ---------------- the hedged score ----------------
-        hedge_betas = rebuilt_betas(out_dir, score)              # per refit, from the model's rebuilt score history
-        if hedge_betas.empty:
-            # the original score needs its own node weights, which the backtest does not save: leave it out rather
-            # than hedge it another way, and remove any tables left from an earlier run
-            print(f'\n######## {LABEL}, {score}: no rebuilt hedge ratios, left out')
+        # ---------------- the hedged score, as the backtest wrote it ----------------
+        bh = backtest_hedged(p, score)
+        if bh is None:
+            # a score file from before the backtest wrote this hedged score: leave the score out (rerun backtest.py)
+            # and remove any tables left from an earlier run
+            print(f'\n######## {LABEL}, {score}: no {HEDGED_COL[score]} in the score file (rerun backtest.py), left out')
             for stem in ['signal_hedged_by_period', 'signal_spanning_sharpe', 'signal_hedged_monthly',
                          'signal_score_decay', 'signal_hedge_decomposition']:
                 (out_dir / output_name(stem, score)).unlink(missing_ok=True)
             continue
-        w, ls = score_weights(p, score)
-        hedged, w_hedged = hedge_score(p, w, ls, hedge_betas)    # hedged return series + its stock positions
+        w, ls = score_weights(p, score)                          # unhedged, for the size/beta hedges and the decay
+        hedged, w_hedged = bh                                    # hedged return series + its stock positions
         print(f'\n######## {LABEL}, {score}: hedged over {len(hedged)} months {hedged.index.min()}-{hedged.index.max()}')
 
         # ---------------- 1. standalone quality, by period ----------------
